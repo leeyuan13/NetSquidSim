@@ -24,19 +24,17 @@ from traditional1 import run_simulation as run_trad
 atom_times = [[1e12, 1e6],]
 rep_times = [[1e12, 1e6], [1e12, 1e6]]
 
-channel_loss = 0.9
+channel_loss = 0.995
 
-PREFIX = 'T2_dom8/'
+PREFIX = 'NetSquidData2/T2_domA7/'
 
-#num_qubits = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30] # even numbers
+num_qubits = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30] # even numbers
+#num_qubits = [20, 22, 24, 26, 28, 30]
 #num_qubits = [2, 4, 6, 8, 10, 12, 14, 16, 18]
 #num_qubits = [46, 48, 50, 52, 54, 56]
 #num_qubits = [200,]
-num_qubits = [2,]
-#num_repeats = 5
-num_repeats = 1
-duration = 1000
-#duration = 100
+num_repeats = 5 
+duration = 200000
 
 # Note that the entanglement signals are sent every 1 ns.
 
