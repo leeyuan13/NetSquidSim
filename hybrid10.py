@@ -29,8 +29,7 @@ np.set_printoptions(precision=2)
 # This time, packaged nicely to only expose Alice's and Bob's scont nodes.
 # Also with proper C1, C2 connections i.e. with electron and nuclear spins.
 
-# The repeater connections need not be perfect, and we incorporate the loss model in Rozpedek
-# et al for the decoherence when an electron attempt is made.
+## TODO: Trying to incorporate repeater chains
 
 class PrintProtocol(TimedProtocol):
 	def __init__(self, time_step, nodes_to_print, start_time = 0, to_combine = False):
@@ -68,14 +67,11 @@ class SourceProtocol(AtomProtocol):
 class BellProtocol(AtomProtocol):
 	''' Protocol for repeater atoms. '''
 	def __init__(self, time_step, node, connection, test_conn, \
-								to_correct = False, to_correct_BK_BSM = False, to_print = False,
-								noise_on_nuclear = None):
+								to_correct = False, to_correct_BK_BSM = False, to_print = False):
 		# to_correct is for the AtomProtocol Barrett-Kok (i.e. with the source node).
 		# to_correct_BK_BSM is whether to correct phases in the BK_BSM protocol.
-		# noise_on_nuclear is the noise to be applied on the nuclear spin every time the electron spin is
-		#	used; it comprises a dephasing and depolarization, see Rozpedek et al.
 		super().__init__(time_step, node, connection, test_conn, to_run = False, to_correct = to_correct)
-		# Note that the quantum memory should have 2 atoms now:
+		# Note that the quantum memory has 2 atoms now:
 		#	electron spin (active) = index 0
 		# 	nuclear spin (storage) = index 1
 		self.repeater_conn = None # classical connection to repeater control
@@ -91,19 +87,6 @@ class BellProtocol(AtomProtocol):
 
 		# Whether to print info to console.
 		self.to_print = to_print
-
-		# Noise to be applied on the nuclear spin.
-		# noise_on_nuclear takes a single qubit as input, and modifies the state of the qubit in place.
-		self.noise_on_nuclear = noise_on_nuclear
-
-	def send_photon(self):
-		# Send photon down the connection.
-		super().send_photon()
-		# The quantum memory also has a nuclear spin now, so apply the appropriate noise to the nuclear spin.
-		if self.noise_on_nuclear is not None:
-			nuclear_spin = self.nodememory.get_qubit(1)
-			if nuclear_spin is not None:
-				self.noise_on_nuclear(nuclear_spin)
 	
 	def start_BK(self, args = None):
 		# Called when the repeater node should do Barrett-Kok with the source nodes.
@@ -416,9 +399,6 @@ class RepeaterControlProtocol(TimedProtocol):
 		if self.to_collect_data and self.source1 is not None and self.source2 is not None:
 			self.key_dm.append(nq.reduced_dm([self.source1[counter1].qmemory.get_qubit(0), \
 							 self.source2[counter2].qmemory.get_qubit(0)]))
-			print(results, np.abs(np.sum(self.key_dm[-1][1:3, 1:3]))/2, \
-						[self.data[i][len(self.key_dm)-1] for i in range(3)])
-			#print(self.key_dm[-1])
 	
 	def set_scont_conn(self, conn1, conn2):
 		# Set connections to sconts.
@@ -967,8 +947,7 @@ if True:
 		return rep_bs_prot
 
 # Wrap procedure in a function.
-def run_simulation(num_channels, atom_times, rep_times, channel_loss, duration = 100, \
-					repeater_channel_loss = 0., noise_on_nuclear_params = None):
+def run_simulation(num_channels, atom_times, rep_times, channel_loss, duration = 100):
 	ns.simutil.sim_reset()
 	nq.set_qstate_formalism(ns.QFormalism.DM)
 
@@ -980,7 +959,6 @@ def run_simulation(num_channels, atom_times, rep_times, channel_loss, duration =
 			yield j
 	
 	index_gen = get_index()
-	
 	# Misleading names: actually the time interval, not the rate.
 	BASE_CLOCK_RATE = 10 # For SourceProtocol, DetectorProtocol, etc.,
 						 # i.e. stuff that does not rely on frequent checks.
@@ -993,14 +971,6 @@ def run_simulation(num_channels, atom_times, rep_times, channel_loss, duration =
 							  # is run.)
 	BK_BSM_RATE = 0.1 # How often the repeater nodes try BK_BSM after a failure. (For BellProtocol.)
 
-	# Noise on nuclear spin when electron spin sends a photon.
-	if noise_on_nuclear_params is None:
-		nna, nnb = 0, 0
-	else:
-		nna, nnb = noise_on_nuclear_params
-	noise_on_nuclear = lambda q: nq.qubitapi.multi_operate(q, [ns.I, ns.X, ns.Y, ns.Z], \
-														[1-nna-0.75*nnb, 0.25*nnb, 0.25*nnb, (nna+0.25*nnb)])
-
 	#make_atom_memory = lambda x, y: StandardMemoryDevice(x, y, decoherenceTimes = [[211400, 211400],])
 	#make_rep_memory = lambda x, y: StandardMemoryDevice(x, y, \
 	#										decoherenceTimes = [[211400, 211400], [0, 0]])
@@ -1012,8 +982,7 @@ def run_simulation(num_channels, atom_times, rep_times, channel_loss, duration =
 							SourceProtocol(BASE_CLOCK_RATE, x, y, z, to_correct=to_correct)
 	make_rep_prot = lambda x, y, z, to_correct = False, to_correct_BK_BSM = False: \
 							BellProtocol(BK_BSM_RATE, x, y, z, to_correct=to_correct, \
-										 to_correct_BK_BSM = to_correct_BK_BSM, \
-										 noise_on_nuclear = noise_on_nuclear)
+										 to_correct_BK_BSM = to_correct_BK_BSM)
 	make_det_prot = lambda x, y, z: DetectorProtocol(BASE_CLOCK_RATE, x, y, z)
 	make_bs_prot = [lambda x, y, z: BeamSplitterProtocol(BS_CLOCK_RATE, x, y, z),\
 					lambda x, y, z: StateCheckProtocol(BS_CLOCK_RATE, x, y, z)]
@@ -1037,9 +1006,7 @@ def run_simulation(num_channels, atom_times, rep_times, channel_loss, duration =
 	next_index = index_gen.__next__()
 	repeater_control = QuantumNode("rep_control"+str(next_index), next_index)
 
-	# Vanilla QuantumConnections if repeater_channel_loss = 0.
-	node_to_bs_rep = lambda x, y: QuantumConnection(x, y, \
-									noise_model = QubitLossNoiseModel(repeater_channel_loss))
+	node_to_bs_rep = bs_to_det # i.e. vanilla QuantumConnections
 	bs_to_bs_rep = bs_to_det
 	bs_to_det_rep = bs_to_det
 	make_rep_bs_prot = lambda x, y, a, b, c, d: RepeaterBSProtocol(BASE_CLOCK_RATE, x, y, a, b, c, d)
