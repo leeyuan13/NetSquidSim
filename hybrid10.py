@@ -12,11 +12,11 @@ from netsquid.simutil import sim_time
 
 from easysquid.quantumMemoryDevice import QuantumMemoryDevice, StandardMemoryDevice,\
 											UniformStandardMemoryDevice
-from netsquid.components import QuantumNoiseModel
+from netsquid.components import QuantumNoiseModel, FixedDelayModel
 
 import logging
 
-from bk6 import AtomProtocol, BeamSplitterProtocol, DetectorProtocol,\
+from bk7 import AtomProtocol, BeamSplitterProtocol, DetectorProtocol,\
 				StateCheckProtocol, QubitLossNoiseModel
 # Use BSM2 because it encodes the BSM result in a way that tells us what gates are needed for
 # teleportation to actually occur.
@@ -29,7 +29,12 @@ np.set_printoptions(precision=2)
 # This time, packaged nicely to only expose Alice's and Bob's scont nodes.
 # Also with proper C1, C2 connections i.e. with electron and nuclear spins.
 
-## TODO: Trying to incorporate repeater chains
+# The repeater connections need not be perfect, and we incorporate the loss model in Rozpedek
+# et al for the decoherence when an electron attempt is made.
+# Connections are treated as having a physical distance, which means they have an associated
+# time delay as well.
+
+# Note the changes to the arguments of run_simulation.
 
 class PrintProtocol(TimedProtocol):
 	def __init__(self, time_step, nodes_to_print, start_time = 0, to_combine = False):
@@ -67,11 +72,14 @@ class SourceProtocol(AtomProtocol):
 class BellProtocol(AtomProtocol):
 	''' Protocol for repeater atoms. '''
 	def __init__(self, time_step, node, connection, test_conn, \
-								to_correct = False, to_correct_BK_BSM = False, to_print = False):
+								to_correct = False, to_correct_BK_BSM = False, to_print = False,
+								noise_on_nuclear = None):
 		# to_correct is for the AtomProtocol Barrett-Kok (i.e. with the source node).
 		# to_correct_BK_BSM is whether to correct phases in the BK_BSM protocol.
+		# noise_on_nuclear is the noise to be applied on the nuclear spin every time the electron spin is
+		#	used; it comprises a dephasing and depolarization, see Rozpedek et al.
 		super().__init__(time_step, node, connection, test_conn, to_run = False, to_correct = to_correct)
-		# Note that the quantum memory has 2 atoms now:
+		# Note that the quantum memory should have 2 atoms now:
 		#	electron spin (active) = index 0
 		# 	nuclear spin (storage) = index 1
 		self.repeater_conn = None # classical connection to repeater control
@@ -87,6 +95,23 @@ class BellProtocol(AtomProtocol):
 
 		# Whether to print info to console.
 		self.to_print = to_print
+
+		# Noise to be applied on the nuclear spin.
+		# noise_on_nuclear takes a single qubit as input, and modifies the state of the qubit in place.
+		self.noise_on_nuclear = noise_on_nuclear
+
+	def apply_noise_on_nuclear(self):
+		if self.noise_on_nuclear is not None:
+			nuclear_spin = self.nodememory.get_qubit(1)
+			if nuclear_spin is not None:
+				self.noise_on_nuclear(nuclear_spin)
+		
+	def send_photon(self):
+		# Send photon down the connection.
+		super().send_photon()
+		# The quantum memory also has a nuclear spin now, so apply the appropriate noise to the 
+		# nuclear spin.
+		self.apply_noise_on_nuclear()
 	
 	def start_BK(self, args = None):
 		# Called when the repeater node should do Barrett-Kok with the source nodes.
@@ -150,6 +175,7 @@ class BellProtocol(AtomProtocol):
 		# since that sends it down the connection with Alice/Bob.
 		self.repeater_bs_conn.put_from(self.myID, data = [self.photon])
 		# The electron spin has sent a photon, so increment the counter.
+		self.apply_noise_on_nuclear()
 		self.num_electron_attempts += 1
 		self.stage = 5
 
@@ -166,6 +192,7 @@ class BellProtocol(AtomProtocol):
 			nq.operate([self.atom, self.photon], self.permute34)
 			# Send photon.
 			self.repeater_bs_conn.put_from(self.myID, data = [self.photon])
+			self.apply_noise_on_nuclear()
 			self.num_electron_attempts += 1
 			# Keep track of which detector observed the photon.
 			self.detector_order_BK_BSM = msg[-2:]
@@ -179,7 +206,7 @@ class BellProtocol(AtomProtocol):
 			self.detector_order_BK_BSM = None
 			# Print BK_BSM state.
 			#print(self.myID, self.nodememory.get_qubit(0).qstate)
-			# Notify beamsplitter than the correction has been made, in preparation for BSM.
+			# Notify beamsplitter that the correction has been made, in preparation for BSM.
 			self.test_repeater_bs_conn.put_from(self.myID, data = ['BK_BSM_readyBSM',])
 			self.stage = 7
 		elif msg == 'BK_BSM_doBSM' and self.stage == 7:
@@ -399,6 +426,10 @@ class RepeaterControlProtocol(TimedProtocol):
 		if self.to_collect_data and self.source1 is not None and self.source2 is not None:
 			self.key_dm.append(nq.reduced_dm([self.source1[counter1].qmemory.get_qubit(0), \
 							 self.source2[counter2].qmemory.get_qubit(0)]))
+			# TODO: print statement
+			#print(results, np.abs(np.sum(self.key_dm[-1][1:3, 1:3]))/2, \
+			#			[self.data[i][len(self.key_dm)-1] for i in range(3)])
+			#print(self.key_dm[-1])
 	
 	def set_scont_conn(self, conn1, conn2):
 		# Set connections to sconts.
@@ -671,7 +702,8 @@ if True:
 		return control_prot, scont1_prot, scont2_prot
 
 	def create_BK(index_gen, make_atom_memory, make_rep_memory, node_to_bs, bs_to_det, make_atom_prot, \
-					make_rep_prot, make_det_prot, make_bs_prot, to_correct_BK_BSM = False):
+					make_rep_prot, make_det_prot, make_bs_prot, to_correct_BK_BSM = False,\
+					classical_delay = 0.):
 		# Inputs:
 		#	 index_gen = generator for node indices
 		#	 make_atom_memory = function that takes the atom name and index, and returns a MemoryDevice
@@ -697,6 +729,7 @@ if True:
 		#						 BK_BSM, False otherwise
 		#						 Note: in the source-repeater Barrett-Kok protocol, the source node
 		#						 always corrects for phase.
+		#	classical_delay = time delay (in ns) for connection between nodes and beamsplitters
 		# Returns:
 		#	[sender_node, rep_node], [sender_prot, rep_prot]
 
@@ -726,8 +759,10 @@ if True:
 		# Classical connections from detectors to beamsplitter to nodes.
 		test_conn1 = ClassicalConnection(detector1, beamsplitter)
 		test_conn2 = ClassicalConnection(detector2, beamsplitter)
-		test_conn3 = ClassicalConnection(beamsplitter, sender_node)
-		test_conn4 = ClassicalConnection(beamsplitter, rep_node)
+		test_conn3 = ClassicalConnection(beamsplitter, sender_node, \
+											delay_model = FixedDelayModel(delay=classical_delay))
+		test_conn4 = ClassicalConnection(beamsplitter, rep_node, \
+											delay_model = FixedDelayModel(delay=classical_delay))
 		# Set up protocols at nodes, detectors and beamsplitter.
 		# Note that the atom/repeater protocol must have a "verification" method as the callback.
 		proto1 = make_atom_prot(sender_node, conn1, test_conn3, to_correct = True)
@@ -824,7 +859,8 @@ if True:
 								rep_control, rep_control_prot, repeater_bs, \
 								make_rep_bs_prot,\
 								node_to_bs_rep, bs_to_bs_rep, bs_to_det_rep, \
-								make_det_prot, make_bs_prot):
+								make_det_prot, make_bs_prot, \
+								classical_rep_delay = 0.):
 		# make_rep_bs_prot should take the following arguments:
 		# (node, conn_to_rep_control, conn1, conn2, test_conn1, test_conn2)
 		# and return a repeater beamsplitter protocol.
@@ -833,6 +869,8 @@ if True:
 		# the node that routes incoming qubits appropriately).
 		# bs_to_bs_rep and bs_to_det_rep create connections from repeater beamsplitter to the
 		# constituent beamsplitters and from the constituent beamsplitters to the detectors respectively.
+		# classical_rep_delay is the time delay (in ns) for classical signals travelling between the
+		# repeater beamsplitter and the repeater node.
 		# These connections could be lossless.
 
 		# First establish connections from the repeater nodes to the repeater beamsplitter.
@@ -842,7 +880,8 @@ if True:
 		test_conn2 = []
 		for i in range(len(rep1)):
 			next_conn = node_to_bs_rep(rep1[i], repeater_bs)
-			next_test_conn = ClassicalConnection(repeater_bs, rep1[i])
+			next_test_conn = ClassicalConnection(repeater_bs, rep1[i],\
+											delay_model = FixedDelayModel(delay=classical_rep_delay))
 			proto1[i].set_repeater_bs_conn(next_conn, next_test_conn)
 			conn1.append(next_conn)
 			test_conn1.append(next_test_conn)
@@ -851,7 +890,8 @@ if True:
 			#	test_conn1[i] - success messages going into rep1[i], handled by BK_BSM_verification
 		for i in range(len(rep2)):
 			next_conn = node_to_bs_rep(rep2[i], repeater_bs)
-			next_test_conn = ClassicalConnection(repeater_bs, rep2[i])
+			next_test_conn = ClassicalConnection(repeater_bs, rep2[i],\
+											delay_model = FixedDelayModel(delay=classical_rep_delay))
 			proto2[i].set_repeater_bs_conn(next_conn, next_test_conn)
 			conn2.append(next_conn)
 			test_conn2.append(next_test_conn)
@@ -947,7 +987,42 @@ if True:
 		return rep_bs_prot
 
 # Wrap procedure in a function.
-def run_simulation(num_channels, atom_times, rep_times, channel_loss, duration = 100):
+def run_simulation(num_channels, atom_times, rep_times, channel_loss, duration = 100, \
+					repeater_channel_loss = 0., noise_on_nuclear_params = None, \
+					link_delay = 0., link_time = 1., local_delay = 0., local_time = 0.1, \
+					time_bin = 0.01, detector_pdark = 1e-7, detector_eff = 0.93):
+	## Parameters:
+	# num_channels = degree of parallelism (m/2 for hybrid, m for trad)
+	# atom_times = [[T1, T2],] for Alice's and Bob's electron spins
+	# rep_times = [[T1, T2] for electron spin, [T1, T2] for nuclear spin]
+	# channel_loss = probability of losing a photon between a client node and a detector station
+	# duration = length of simulation in nanoseconds
+	# repeater_channel_loss = probability of losing a photon between a repeater qubit register
+	#							and a detector station in the repeater node
+	# noise_on_nuclear_params = [a = 1/4000, b = 1/5000] parameters for the depolarizing and dephasing
+	#								noise experienced by the nuclear spin when the electron spin sends
+	#								a photon
+	## Temporal parameters (in nanoseconds):
+	# link_delay = time of flight from a node to a detector station
+	# 				(Barrett-Kok requires (at least) 4 time-of-flights)
+	# link_time = network clock cycle (distant Barrett-Kok attempts are prompted once every 
+	# 									 link_time, so link_time >= 4 link_delay)
+	# local_delay = time of flight from a node to a local detector station
+	# local_time = clock cycle for local (within-repeater operations)
+	# time_bin = temporal resolution for beamsplitters (i.e. we count photons in a time interval of 
+	#				width time_bin after accounting for time of flight to the detector station)
+	#			 time_bin can also be the temporal resolution of the detector -- then the detector dark
+	#			 	count probability is computed in terms of time_bin
+	## Detector parameters:
+	# detector_pdark = dark count probability in an interval time_bin
+	# detector_eff = detector efficiency
+	## Assume symmetric links, i.e. all node-to-bs links have the same delay.
+	## Also assume deterministic delay, i.e. that we have good control over timing.
+	## Assume negligible loss for links within the detector station.
+	## Note that the terminology is somewhat misleading: link_delay refers to the delay across an
+	##	individual channel in the physical layer, not a link in the link layer. (This code was written
+	##	before the name change.)
+
 	ns.simutil.sim_reset()
 	nq.set_qstate_formalism(ns.QFormalism.DM)
 
@@ -959,38 +1034,51 @@ def run_simulation(num_channels, atom_times, rep_times, channel_loss, duration =
 			yield j
 	
 	index_gen = get_index()
+	
 	# Misleading names: actually the time interval, not the rate.
 	BASE_CLOCK_RATE = 10 # For SourceProtocol, DetectorProtocol, etc.,
 						 # i.e. stuff that does not rely on frequent checks.
-	BS_CLOCK_RATE = 0.01 # For BeamSplitterProtocol and StateCheckProtocol, for whom time
-						 # is supposedly of the essence because they require incoming photons
-						 # to be coincient. ('supposedly' because these protocols
-						 # do not actually run unprompted, i.e. run_protocol is not run.)
-	REPEATER_CONTROL_RATE = 1 # How often the repeater control sends start signals to repeater nodes
-							  # that are eligible. (For RepeaterControlProtocol, where run_protocol
-							  # is run.)
-	BK_BSM_RATE = 0.1 # How often the repeater nodes try BK_BSM after a failure. (For BellProtocol.)
+	BS_CLOCK_RATE = time_bin # For BeamSplitterProtocol and StateCheckProtocol, for whom time
+						 	 # is supposedly of the essence because they require incoming photons
+						 	 # to be coincident. ('supposedly' because these protocols
+						 	 # do not actually run unprompted, i.e. run_protocol is not run. 
+							 # Nevertheless the time step is used as the simultaneity condition.)
+	REPEATER_CONTROL_RATE = link_time   # How often the repeater control sends start 
+										# signals to repeater nodes
+							  			# that are eligible. (For RepeaterControlProtocol, 
+										# where run_protocol is run.)
+	BK_BSM_RATE = local_time # How often the repeater nodes try BK_BSM after a failure. 
+							 # (For BellProtocol.)
 
-	#make_atom_memory = lambda x, y: StandardMemoryDevice(x, y, decoherenceTimes = [[211400, 211400],])
-	#make_rep_memory = lambda x, y: StandardMemoryDevice(x, y, \
-	#										decoherenceTimes = [[211400, 211400], [0, 0]])
+	# Noise on nuclear spin when electron spin sends a photon.
+	if noise_on_nuclear_params is None:
+		nna, nnb = 0, 0
+	else:
+		nna, nnb = noise_on_nuclear_params
+	noise_on_nuclear = lambda q: nq.qubitapi.multi_operate(q, [ns.I, ns.X, ns.Y, ns.Z], \
+												[1-nna-0.75*nnb, 0.25*nnb, 0.25*nnb, (nna+0.25*nnb)])
+
 	make_atom_memory = lambda x, y: StandardMemoryDevice(x, y, decoherenceTimes = atom_times)
 	make_rep_memory = lambda x, y: StandardMemoryDevice(x, y, decoherenceTimes = rep_times)
-	node_to_bs = lambda x, y: QuantumConnection(x, y, noise_model = QubitLossNoiseModel(channel_loss))
+	node_to_bs = lambda x, y: QuantumConnection(x, y, noise_model = QubitLossNoiseModel(channel_loss),\
+												delay_model = FixedDelayModel(delay=link_delay))
 	bs_to_det = lambda x, y: QuantumConnection(x, y)
 	make_atom_prot = lambda x, y, z, to_correct = False: \
 							SourceProtocol(BASE_CLOCK_RATE, x, y, z, to_correct=to_correct)
 	make_rep_prot = lambda x, y, z, to_correct = False, to_correct_BK_BSM = False: \
 							BellProtocol(BK_BSM_RATE, x, y, z, to_correct=to_correct, \
-										 to_correct_BK_BSM = to_correct_BK_BSM)
-	make_det_prot = lambda x, y, z: DetectorProtocol(BASE_CLOCK_RATE, x, y, z)
+										 to_correct_BK_BSM = to_correct_BK_BSM, \
+										 noise_on_nuclear = noise_on_nuclear)
+	make_det_prot = lambda x, y, z: DetectorProtocol(BASE_CLOCK_RATE, x, y, z, \
+											pdark = detector_pdark, efficiency = detector_eff)
 	make_bs_prot = [lambda x, y, z: BeamSplitterProtocol(BS_CLOCK_RATE, x, y, z),\
 					lambda x, y, z: StateCheckProtocol(BS_CLOCK_RATE, x, y, z)]
 
 	make_BK = lambda to_correct_BK_BSM = False, index_generator = None: \
 				create_BK(index_gen if index_generator is None else index_generator, make_atom_memory, \
 										make_rep_memory, node_to_bs, bs_to_det, make_atom_prot, \
-										make_rep_prot, make_det_prot, make_bs_prot, to_correct_BK_BSM)
+										make_rep_prot, make_det_prot, make_bs_prot, to_correct_BK_BSM,\
+										link_delay)
 
 	make_scont_prot = lambda x, y, z: ScontProtocol(BASE_CLOCK_RATE, x, y, z)
 	make_scont_conn = lambda x, y, z: connect_to_source(x, y, z, make_scont_prot)
@@ -1006,7 +1094,10 @@ def run_simulation(num_channels, atom_times, rep_times, channel_loss, duration =
 	next_index = index_gen.__next__()
 	repeater_control = QuantumNode("rep_control"+str(next_index), next_index)
 
-	node_to_bs_rep = bs_to_det # i.e. vanilla QuantumConnections
+	# Vanilla QuantumConnections if repeater_channel_loss = 0.
+	node_to_bs_rep = lambda x, y: QuantumConnection(x, y, \
+									noise_model = QubitLossNoiseModel(repeater_channel_loss),\
+									delay_model = FixedDelayModel(delay=local_delay))
 	bs_to_bs_rep = bs_to_det
 	bs_to_det_rep = bs_to_det
 	make_rep_bs_prot = lambda x, y, a, b, c, d: RepeaterBSProtocol(BASE_CLOCK_RATE, x, y, a, b, c, d)
@@ -1015,14 +1106,16 @@ def run_simulation(num_channels, atom_times, rep_times, channel_loss, duration =
 	repeater_bs = QuantumNode("rep_bs"+str(next_index), next_index)
 
 	# We don't want the repeater's internal detectors to keep printing messages.
-	make_det_prot_rep = lambda x, y, z: DetectorProtocol(BASE_CLOCK_RATE, x, y, z, to_print = False)
+	make_det_prot_rep = lambda x, y, z: DetectorProtocol(BASE_CLOCK_RATE, x, y, z, to_print = False, \
+											pdark = detector_pdark, efficiency = detector_eff)
 
 	make_rep_bs_conn = lambda rep_nodes_info, repeater_control, rep_control_prot, repeater_bs,\
 						index_generator = None:\
 					connect_to_repeater_bs(index_gen if index_generator is None else index_generator,\
 											*rep_nodes_info, repeater_control, rep_control_prot, \
 											repeater_bs, make_rep_bs_prot, node_to_bs_rep, \
-											bs_to_bs_rep, bs_to_det_rep, make_det_prot_rep, make_bs_prot)
+											bs_to_bs_rep, bs_to_det_rep, make_det_prot_rep, \
+											make_bs_prot, local_delay)
 					
 	rep_control_prot, scont1_prot, scont2_prot = \
 						connect_by_hybrid_repeater(num_channels, scont1, scont2, \
@@ -1039,34 +1132,3 @@ def run_simulation(num_channels, atom_times, rep_times, channel_loss, duration =
 
 	return rep_control_prot
 
-if __name__ == '__main__':
-	rep_control_prot = run_simulation(1, [[2, 2],], [[2, 2], [100, 100]], 0.1)
-	if False: # plot graphs
-		import matplotlib.pyplot as plt
-		time1 = rep_control_prot.data[0]
-		time2 = rep_control_prot.data[1]
-		num_trials = min(len(time1), len(time2))
-		wait_time = [abs(time1[i] - time2[i])/REPEATER_CONTROL_RATE for i in range(num_trials)]
-
-		plt.figure()
-		plt.hist(wait_time, bins = list(range(int(max(wait_time))+2)))
-		plt.xlabel('wait time / clock cycles')
-		plt.ylabel('number of occurrences')
-		plt.title('Wait time between matches across channels')
-
-		successful_entanglement = [x[0] for x in rep_control_prot.data[2]]
-		plt.figure()
-		plt.plot(time1, 'b:')
-		plt.plot(time2, 'r:')
-		plt.plot(successful_entanglement, 'k-')
-		plt.xlabel('number of successes')
-		plt.ylabel('time of occurrence')
-
-		num_electron_attempts = [x[2] for x in rep_control_prot.data[2]]
-		plt.figure()
-		plt.hist(num_electron_attempts, bins = list(range(2, int(max(num_electron_attempts))+2)))
-		plt.xlabel('number of attempts')
-		plt.ylabel('number of occurrences')
-		plt.title('Number of attempts at electron entanglement with an active nuclear spin')
-
-		plt.show()
