@@ -118,10 +118,10 @@ def trad_params(m, channel_length, duration):
 				noise_on_nuclear_params, link_delay, link_time, None, None, time_bin, \
 				detector_pdark, detector_eff)
 
-PREFIX = 'T2_dom8/'
+PREFIX = '1km/'
 
-#num_qubits = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30] # even numbers
-num_qubits = [2,]
+num_qubits = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30] # even numbers
+#num_qubits = [2,]
 channel_length = 1 # in kilometers
 num_repeats = 1
 duration = 1e8
