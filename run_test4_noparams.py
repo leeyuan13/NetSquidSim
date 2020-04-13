@@ -2,13 +2,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 
-IDENTIFIER = '1km_0'
+# Remember to run the NetSquid virtual environment for Python.
+# e.g. source ~/netsquid/bin/activate
+
+# Define IDENTIFIER, channel_length, num_repeats in console.
+#IDENTIFIER = '1km_0'
 PREFIX = 'NetSquidData3/'+IDENTIFIER+'/'
 
 num_qubits = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30] # even numbers
 #num_qubits = [2,]
-channel_length = 1 # in kilometers
-num_repeats = 1
+#channel_length = 1 # in kilometers
+#num_repeats = 1
 duration = 1e8
 
 from hybrid10 import run_simulation as run_hybrid
