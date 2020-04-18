@@ -16,11 +16,11 @@ from netsquid.components import QuantumNoiseModel, FixedDelayModel
 
 import logging
 
-from bk7 import AtomProtocol, BeamSplitterProtocol, DetectorProtocol,\
+from bk8 import AtomProtocol, BeamSplitterProtocol, DetectorProtocol,\
 				StateCheckProtocol, QubitLossNoiseModel
-# Use BSM2 because it encodes the BSM result in a way that tells us what gates are needed for
-# teleportation to actually occur.
-from BSM2 import BellStateMeasurement as BSM
+# Use BSM3 because it allows for imperfect measurements.
+from BSM3 import BellStateMeasurement as BSM
+from BSM3 import depolarization
 
 np.set_printoptions(precision=2)
 
@@ -49,8 +49,9 @@ class PrintProtocol(TimedProtocol):
 
 class SourceProtocol(AtomProtocol):
 	''' Protocol for source nodes. '''
-	def __init__(self, time_step, node, connection, test_conn, to_correct = False):
-		super().__init__(time_step, node, connection, test_conn, to_run = False, to_correct = to_correct)
+	def __init__(self, time_step, node, connection, test_conn, to_correct = False, prep_fidelity = 1.):
+		super().__init__(time_step, node, connection, test_conn, to_run = False, \
+						 to_correct = to_correct, prep_fidelity = prep_fidelity)
 		self.scont_conn = None
 	
 	def start_BK(self, args = None):
@@ -69,12 +70,17 @@ class BellProtocol(AtomProtocol):
 	''' Protocol for repeater atoms. '''
 	def __init__(self, time_step, node, connection, test_conn, other_conn = None, \
 							test_other_conn = None, to_correct = False, to_print = False,\
-							noise_on_nuclear = None):
+							noise_on_nuclear = None, gate_fidelity = 1., meas_fidelity = 1.,\
+							prep_fidelity = 1.):
 		# to_correct tells us whether the protocol should correct for phase in Barrett-Kok.
 		# other_conn, test_other_conn are the connections to the other source nodes.
 		# noise_on_nuclear is the noise to be applied on the nuclear spin every time the electron spin is
 		#	used; it comprises a dephasing and depolarization, see Rozpedek et al.
-		super().__init__(time_step, node, connection, test_conn, to_run = False, to_correct = to_correct)
+		# gate_fidelity is the fidelity of a single 2-qubit gate.
+		# meas_fidelity is the fidelity with which the electron spin can be be measured -- affects
+		# 	the fidelity of Bell state measurements.
+		super().__init__(time_step, node, connection, test_conn, to_run = False, \
+						 to_correct = to_correct, prep_fidelity = prep_fidelity)
 		# Note that the quantum memory has 2 atoms now:
 		#	electron spin (active) = index 0
 		# 	nuclear spin (storage) = index 1
@@ -101,6 +107,15 @@ class BellProtocol(AtomProtocol):
 		# Noise to be applied on the nuclear spin.
 		# noise_on_nuclear takes a single qubit as input, and modifies the state of the qubit in place.
 		self.noise_on_nuclear = noise_on_nuclear
+		# Fidelity of single 2-qubit gate.
+		self.gate_fidelity = gate_fidelity
+		# Fidelity after depolarization due to electron spin measurements.
+		self.meas_fidelity = meas_fidelity
+		# Depolarization channel for the SWAP gate.
+		# This is for the situation where the electron spin is moved _into_ the nuclear spin,
+		# so there is nothing in the electron spin after the nuclear spin is moved.
+		# Hence, we only need a one-qubit depolarization channel.
+		self.gate_depol = depolarization(1, gate_fidelity**2)
 	
 	def apply_noise_on_nuclear(self):
 		if self.noise_on_nuclear is not None:
@@ -152,7 +167,8 @@ class BellProtocol(AtomProtocol):
 				self.num_electron_attempts += 1
 				self.apply_noise_on_nuclear()
 		elif msg == 'BSM':
-			BSMoutcome = BSM(self.nodememory.get_qubit(0), self.nodememory.get_qubit(1))
+			BSMoutcome = BSM(self.nodememory.get_qubit(0), self.nodememory.get_qubit(1),\
+								self.gate_fidelity**2, self.meas_fidelity)
 			# self.num_electron_attempts here was reset when the second side started.
 			# In particular, we made the nuclear spin active right before starting the second side.
 			self.repeater_conn.put_from(self.myID, data = \
@@ -162,6 +178,8 @@ class BellProtocol(AtomProtocol):
 			self.stage = 0
 		elif msg == 'move_qubit': # i.e. move from electron spin to nuclear spin
 			self.move_qubit(0, 1)
+			# Model noise as depolarization channel.
+			self.gate_depol([self.nodememory.get_qubit(1)])
 			# Let repeater control know.
 			self.repeater_conn.put_from(self.myID, data = [('move_qubit_success',)])
 
@@ -641,7 +659,8 @@ if True:
 def run_simulation(num_channels, atom_times, rep_times, channel_loss, duration = 100,\
 					repeater_channel_loss = None, noise_on_nuclear_params = None, \
 					link_delay = 0., link_time = 1., local_delay = None, local_time = None, \
-					time_bin = 0.01, detector_pdark = 1e-7, detector_eff = 0.93):
+					time_bin = 0.01, detector_pdark = 1e-7, detector_eff = 0.93,\
+					gate_fidelity = 0.999, meas_fidelity = 0.9998, prep_fidelity = 0.99):
 	# Note that repeater_channel_loss is irrelevant here, because there are no channels
 	# within the repeater.
 	# Similarly, local_delay and local_time mean nothing here.
@@ -683,10 +702,13 @@ def run_simulation(num_channels, atom_times, rep_times, channel_loss, duration =
 	bs_to_det = lambda x, y: QuantumConnection(x, y)
 	# Note that to_correct is for the phase difference in BK.
 	make_atom_prot = lambda x, y, z, to_correct = False: \
-							SourceProtocol(BASE_CLOCK_RATE, x, y, z, to_correct=to_correct)
+							SourceProtocol(BASE_CLOCK_RATE, x, y, z, to_correct=to_correct,\
+										   prep_fidelity = prep_fidelity)
 	make_rep_prot = lambda x, y, z, to_correct = False: \
 							BellProtocol(BASE_CLOCK_RATE, x, y, z, to_correct=to_correct, \
-										noise_on_nuclear = noise_on_nuclear)
+										noise_on_nuclear = noise_on_nuclear, \
+										gate_fidelity = gate_fidelity, meas_fidelity = meas_fidelity,\
+										prep_fidelity = prep_fidelity)
 	make_det_prot = lambda x, y, z: DetectorProtocol(BASE_CLOCK_RATE, x, y, z, \
 											pdark = detector_pdark, efficiency = detector_eff)
 	make_bs_prot = [lambda x, y, z: BeamSplitterProtocol(BS_CLOCK_RATE, x, y, z),\

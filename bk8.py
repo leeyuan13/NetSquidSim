@@ -15,16 +15,27 @@ from netsquid.components import QuantumNoiseModel
 
 import logging
 
+def dephasing(fidelity):
+	# fidelity = fidelity of depolarized state
+	# The dephasing operation is rho -> fidelity * rho + (1-fidelity) * Z * rho * Z.
+	# The Kraus operators for the completely depolarizing channel (fidelity = 0) are just a uniform
+	# distribution of general Pauli operators.
+	# Returns a dephasing function that you can apply to states.
+
+	return lambda q: nq.qubitapi.multi_operate(q, [ns.I, ns.Z], [fidelity, 1-fidelity])
+
 class AtomProtocol(TimedProtocol):
 	''' Protocol for atom. '''
 
 	def __init__(self, time_step, node, connection, test_conn, to_run = True, start_time = 0,\
-					to_correct = False, to_print = False):
+					to_correct = False, to_print = False, prep_fidelity = 1.):
 		super().__init__(time_step, start_time = start_time, node = node, connection = connection)
 		# node = QuantumNode for atom that runs this AtomProtocol
 		# node should have a QuantumMemoryDevice at node.qmem
 		# connection = QuantumConnection for atom to 50:50 beam splitter
 		# test_conn = ClassicalConnection from 50:50 beam splitter to atom
+
+		# prep_fidelity = fidelity of atom-photon entangling operation
 
 		# Keeping track of nodes.
 		self.myID = self.node.nodeID
@@ -69,6 +80,9 @@ class AtomProtocol(TimedProtocol):
 		# Whether to print internal procedures to console.
 		self.to_print = to_print
 
+		# Dephasing operation, to model the noise from state preparation.
+		self.prep_noise = dephasing(prep_fidelity)
+
 	def set_state(self):
 		# Atom to be in [1, 1] (to be normalized).
 		# Atomic state [0, 1] is the state resonant with the laser transition.
@@ -78,6 +92,9 @@ class AtomProtocol(TimedProtocol):
 		phiP = nq.Operator("phiP", \
 				np.array([[1, 1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0], [1, 1, 1, 1]]) / np.sqrt(2))
 		nq.operate([self.atom, self.photon], phiP)
+
+		# Apply noise to the photon.
+		self.prep_noise(self.photon)
 
 		# Now, atom and photon are entangled states.
 		# Set quantum memory to the atom state.
