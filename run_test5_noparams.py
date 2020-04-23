@@ -24,11 +24,8 @@ num_qubits = [30, 50, 70, 100,]
 #						num_repeats = 5
 #						duration = 1e8
 # 	num_qubits = 1000, channel_length = 1
-# Also: '15km_test'
-#	num_qubits = 30, 50, 70, 100
-#					 -> channel_length = 15
-#						num_repeats = 3
-#						duration = 5e8
+# Also: '??qubit_??km_rev'
+# 	same as above, but with duration = 5e9
 
 
 print(IDENTIFIER, channel_length, num_repeats, duration)
