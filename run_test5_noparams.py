@@ -11,19 +11,24 @@ import pickle
 #IDENTIFIER = '1km_0rev'
 PREFIX = 'NetSquidData3/'+IDENTIFIER+'/'
 
-num_qubits = [1000,]
+num_qubits = [30, 50, 70, 100,]
 #num_qubits = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30] # even numbers
 #channel_length = 1 # in kilometers
 #num_repeats = 1
 #duration = 2e8
 
 # We choose duration = 2e8 for 1km, 1e9 for 10km, 1e9 (1rev to 5rev) or 5e9 (6rev to 10rev) for 15km, 5e9 for 20km, 1e10 for 25km.
-# Also:
+# Also: '??qubit_??km'
 #	num_qubits = 100, 30, 1000 
 #					 -> channel_length = 25, 15, 10
 #						num_repeats = 5
 #						duration = 1e8
 # 	num_qubits = 1000, channel_length = 1
+# Also: '15km_test'
+#	num_qubits = 30, 50, 70, 100
+#					 -> channel_length = 15
+#						num_repeats = 3
+#						duration = 5e8
 
 
 print(IDENTIFIER, channel_length, num_repeats, duration)
