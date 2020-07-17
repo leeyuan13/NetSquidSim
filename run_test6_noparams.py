@@ -134,8 +134,10 @@ BSM_time = 1e5 # nanoseconds, i.e. 100 microseconds
 
 # Time needed for initialization (i.e. generating spin-photon entanglement).
 prep_time = 6e3
-# Time between successive Barrett-Kok pulses.
+# Time between successive Barrett-Kok pulses (i.e. time needed to apply X gate).
 reset_delay = 100
+# Swap time (i.e. time needed to apply a SWAP gate).
+swap_time = 100
 
 # We might argue that the traditional repeater does not need local_time, but BSM_time dominates
 # local_time by such a large factor that the network clock cycle (link_time) will not change much.
@@ -153,9 +155,9 @@ def get_params(num_repeaters, m, channel_length, duration):
 	repeater_channel_loss = 1 - repeater_channel_efficiency
 	link_delay = link_delay_per_km * channel_length
 	local_delay = local_delay_per_MZI * depth_MZIs
-	local_time = max(2*local_delay, detector_dead_time)
-	link_time = max(2*link_delay, detector_dead_time) + 100*reset_delay + 10 * local_time + \
-					BSM_time + prep_time
+	local_time = max(2*prep_time+2*local_delay+reset_delay, detector_dead_time)
+	link_time = max(2*prep_time+2*link_delay+reset_delay, detector_dead_time) + swap_time + \
+					10*local_time + BSM_time
 	time_bin = 1e-2
 	detector_pdark = 1e-8 * detector_dead_time
 	return (num_repeaters, int(m/2), source_times, rep_times, channel_loss, duration, \
