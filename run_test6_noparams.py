@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
+import time
 
 from hybrid12 import run_simulation as run_hybrid
 
@@ -165,8 +166,11 @@ def get_params(num_repeaters, m, channel_length, duration):
 for nr in num_repeaters:
 	for m in num_qubits:
 		for k in num_repeats:
-			print('hybrid', nr, k)
+			print('hybrid', nr, m, k)
+			start_time = time.time()
 			chain = run_hybrid(*get_params(nr, m, channel_length, duration))
+			end_time = time.time()
+			print((end_time-start_time)/60.0, 'minutes')
 			result = chain.planner_control_prot.data
 			filename = PREFIX+'run_test6_data_hybrid_nr_'+str(nr)+'_m_'+str(m)+\
 								'_trial_'+str(k)+'.pickle'
