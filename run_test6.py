@@ -1,9 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
+import time
 
 from hybrid12 import run_simulation as run_hybrid
-from traditional5 import run_simulation as run_trad
 
 ### ARGUMENTS ###
 ## Repeater node parameters:
@@ -141,43 +141,60 @@ def get_params(num_repeaters, m, channel_length, duration):
 				link_time, local_delay, local_time, time_bin, \
 				detector_pdark, detector_eff, gate_fidelity, meas_fidelity, prep_fidelity, reset_delay)
 
-PREFIX = 'run_test6_3/'
-
-num_repeaters = [1] # [1, 3, 5, 7, 9, 11]
-num_qubits = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30] # even numbers
-#num_qubits = [2,]
-channel_length = 1 # in kilometers
-num_repeats = 1
-duration = 2e8
-
 if False:
+	# PREFIX = 'NetSquidData3/run_test6_1/'
+	
+	num_repeaters = [1,] # 3, 5, 7, 9, 11]
+	#num_qubits = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30] # even numbers
+	num_qubits = [2,]
+	channel_length = 1 # in kilometers
+	num_repeats = 1
+	duration = 2e8
+	
 	data_hybrid = []
 	for nr in num_repeaters:
 		m = num_qubits[0]
 		data_hybrid.append([])
 		for k in range(num_repeats):
 			print('hybrid', nr, k)
+			start_time = time.time()
 			chain = run_hybrid(*get_params(nr, m, channel_length, duration))
+			end_time = time.time()
+			print((end_time - start_time)/60.0, 'minutes')
 			result = chain.planner_control_prot.data
 			with open(PREFIX+'run_test6_data_hybrid_'+str(nr)+'_trial_'+str(k)+'.pickle', 'wb') as fn: 
 				pickle.dump(result, fn)
 			data_hybrid[-1].append(result)
 	
 	# Save data!
-	#with open(PREFIX+'run_test6_data_hybrid.pickle', 'wb') as fn: pickle.dump(data_hybrid, fn)
+	with open(PREFIX+'run_test6_data_hybrid.pickle', 'wb') as fn: pickle.dump(data_hybrid, fn)
 
-if False:
-	data_trad = []
+if True:
+	PREFIX = 'NetSquidData3/run_test6_2/'
+	
+	num_repeaters = [1, 3, 5, 7, 9, 11] # odd numbers
+	num_qubits = [2, 4, 6, 8, 10, 12]
+	channel_length = 1 # in kilometers
+	num_repeats = range(5, 6)
+	duration = 2e9
+
+	print(PREFIX, [x for x in num_repeats])
+
+	data_hybrid = []
 	for nr in num_repeaters:
-		m = num_qubits[0]
-		data_trad.append([])
-		for k in range(num_repeats):
-			print('trad', nr, k)
-			chain = run_trad(*get_params(nr, m, channel_length, duration))
-			result = chain.planner_control_prot.data
-			with open(PREFIX+'run_test6_data_trad_'+str(nr)+'_trial_'+str(k)+'.pickle', 'wb') as fn: 
-				pickle.dump(result, fn)
-			data_trad[-1].append(result)
+		for m in num_qubits:
+			data_hybrid.append([])
+			for k in num_repeats:
+				print('hybrid', nr, m, k)
+				start_time = time.time()
+				chain = run_hybrid(*get_params(nr, m, channel_length, duration))
+				end_time = time.time()
+				print((end_time - start_time)/60.0, 'minutes')
+				result = chain.planner_control_prot.data
+				with open(PREFIX+'run_test6_data_hybrid_'+str(nr)+'_'+str(m)+'_trial_'+str(k)+'.pickle', 'wb') as fn: 
+					pickle.dump(result, fn)
+				data_hybrid[-1].append(result)
 	
 	# Save data!
-	#with open(PREFIX+'run_test6_data_trad.pickle', 'wb') as fn: pickle.dump(data_trad, fn)
+	with open(PREFIX+'run_test6_data_hybrid.pickle', 'wb') as fn: pickle.dump(data_hybrid, fn)
+
