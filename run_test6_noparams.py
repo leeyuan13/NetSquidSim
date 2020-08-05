@@ -1,9 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
-import time
 
 from hybrid12 import run_simulation as run_hybrid
+from traditional5 import run_simulation as run_trad
 
 # Example of parameters to be set.
 # IDENTIFIER = '1km'
@@ -15,6 +15,7 @@ IDENTIFIER = input('IDENTIFIER (no quotes, "/") = ')
 channel_length = float(input('channel_length = '))
 num_repeats = [int(input('trial index = ')),]
 duration = float(input('duration = '))
+is_hybrid = bool(input('is_hybrid = '))
 
 PREFIX = 'NetSquidData3/run_test6_3/'+IDENTIFIER+'/'
 
@@ -134,10 +135,8 @@ BSM_time = 1e5 # nanoseconds, i.e. 100 microseconds
 
 # Time needed for initialization (i.e. generating spin-photon entanglement).
 prep_time = 6e3
-# Time between successive Barrett-Kok pulses (i.e. time needed to apply X gate).
+# Time between successive Barrett-Kok pulses.
 reset_delay = 100
-# Swap time (i.e. time needed to apply a SWAP gate).
-swap_time = 100
 
 # We might argue that the traditional repeater does not need local_time, but BSM_time dominates
 # local_time by such a large factor that the network clock cycle (link_time) will not change much.
@@ -155,9 +154,9 @@ def get_params(num_repeaters, m, channel_length, duration):
 	repeater_channel_loss = 1 - repeater_channel_efficiency
 	link_delay = link_delay_per_km * channel_length
 	local_delay = local_delay_per_MZI * depth_MZIs
-	local_time = max(2*prep_time+2*local_delay+reset_delay, detector_dead_time)
-	link_time = max(2*prep_time+2*link_delay+reset_delay, detector_dead_time) + swap_time + \
-					10*local_time + BSM_time
+	local_time = max(2*local_delay, detector_dead_time)
+	link_time = max(2*link_delay, detector_dead_time) + 100*reset_delay + 10 * local_time + \
+					BSM_time + prep_time
 	time_bin = 1e-2
 	detector_pdark = 1e-8 * detector_dead_time
 	return (num_repeaters, int(m/2), source_times, rep_times, channel_loss, duration, \
@@ -165,18 +164,26 @@ def get_params(num_repeaters, m, channel_length, duration):
 				link_time, local_delay, local_time, time_bin, \
 				detector_pdark, detector_eff, gate_fidelity, meas_fidelity, prep_fidelity, reset_delay)
 
-for nr in num_repeaters:
-	for m in num_qubits:
-		for k in num_repeats:
-			print('hybrid', nr, m, k)
-			start_time = time.time()
-			chain = run_hybrid(*get_params(nr, m, channel_length, duration))
-			end_time = time.time()
-			print((end_time-start_time)/60.0, 'minutes')
-			result = chain.planner_control_prot.data
-			filename = PREFIX+'run_test6_data_hybrid_nr_'+str(nr)+'_m_'+str(m)+\
-								'_trial_'+str(k)+'.pickle'
-			with open(filename, 'wb') as fn: 
-				pickle.dump(result, fn)
-	
+if is_hybrid:
+	for nr in num_repeaters:
+		for m in num_qubits:
+			for k in num_repeats:
+				print('hybrid', nr, k)
+				chain = run_hybrid(*get_params(nr, m, channel_length, duration))
+				result = chain.planner_control_prot.data
+				filename = PREFIX+'run_test6_data_hybrid_nr_'+str(nr)+'_m_'+str(m)+\
+									'_trial_'+str(k)+'.pickle'
+				with open(filename, 'wb') as fn: 
+					pickle.dump(result, fn)
+else:
+	for nr in num_repeaters:
+		for m in num_qubits:
+			for k in num_repeats:
+				print('trad', nr, k)
+				chain = run_trad(*get_params(nr, m, channel_length, duration))
+				result = chain.planner_control_prot.data
+				filename = PREFIX+'run_test6_data_trad_nr_'+str(nr)+'_m_'+str(m)+\
+									'_trial_'+str(k)+'.pickle'
+				with open(filename, 'wb') as fn: 
+					pickle.dump(result, fn)	
 

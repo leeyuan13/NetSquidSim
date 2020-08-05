@@ -50,7 +50,7 @@ class SourceProtocol(AtomProtocol):
 	def verification(self, side = None, args = None):
 		# Do the Barrett-Kok procedure.
 		# Add the side argument for convenience, to be consistent with BellProtocol.
-		# (See LongDistanceLink.create_BK.)
+		# (See e.g. hybrid12.LongDistanceLink.create_BK.)
 		super().verification(args)
 		# Also inform the source control that entanglement is successful.
 		# Note that the source registers only send single strings as classical messages.
