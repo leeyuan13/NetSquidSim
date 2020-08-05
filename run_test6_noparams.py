@@ -171,7 +171,7 @@ if is_hybrid:
 	for nr in num_repeaters:
 		for m in num_qubits:
 			for k in num_repeats:
-				print('hybrid', nr, k)
+				print('hybrid', nr, m, k)
 				chain = run_hybrid(*get_params(nr, m, channel_length, duration))
 				result = chain.planner_control_prot.data
 				filename = PREFIX+'run_test6_data_hybrid_nr_'+str(nr)+'_m_'+str(m)+\
@@ -182,7 +182,7 @@ else:
 	for nr in num_repeaters:
 		for m in num_qubits:
 			for k in num_repeats:
-				print('trad', nr, k)
+				print('trad', nr, m, k)
 				chain = run_trad(*get_params(nr, m, channel_length, duration))
 				result = chain.planner_control_prot.data
 				filename = PREFIX+'run_test6_data_trad_nr_'+str(nr)+'_m_'+str(m)+\
