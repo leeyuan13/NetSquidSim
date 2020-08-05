@@ -4,27 +4,43 @@ import numpy as np
 
 from easysquid.connection import ClassicalConnection, QuantumConnection
 from easysquid.qnode import QuantumNode
-from easysquid.easyprotocol import EasyProtocol, ClassicalProtocol
 from netsquid.protocols import TimedProtocol
-from easysquid.easynetwork import EasyNetwork
 from easysquid.toolbox import EasySquidException, logger
 from netsquid.simutil import sim_time
 
 from easysquid.quantumMemoryDevice import QuantumMemoryDevice, UniformStandardMemoryDevice
 from netsquid.components import QuantumNoiseModel
+from netsquid.components.delaymodels import FixedDelayModel
+
+import netsquid.pydynaa as pydynaa
 
 import logging
 
+def dephasing(fidelity):
+	# fidelity = fidelity of depolarized state
+	# The dephasing operation is rho -> fidelity * rho + (1-fidelity) * Z * rho * Z.
+	# The Kraus operators for the completely depolarizing channel (fidelity = 0) are just a uniform
+	# distribution of general Pauli operators.
+	# Returns a dephasing function that you can apply to states.
+
+	return lambda q: nq.qubitapi.multi_operate(q, [ns.I, ns.Z], [fidelity, 1-fidelity])
+
 class AtomProtocol(TimedProtocol):
 	''' Protocol for atom. '''
+	# Trigger to send the second photon of the Barrett-Kok protocol.
+	_EVT_NEXT_PHOTON_TRIGGER = pydynaa.EventType("NEXT PHOTON TRIGGER", \
+												"Reset delay elapsed - next photon can be sent")
 
 	def __init__(self, time_step, node, connection, test_conn, to_run = True, start_time = 0,\
-					to_correct = False, to_print = False):
+					to_correct = False, to_print = False, prep_fidelity = 1., reset_delay = 0.1):
 		super().__init__(time_step, start_time = start_time, node = node, connection = connection)
 		# node = QuantumNode for atom that runs this AtomProtocol
 		# node should have a QuantumMemoryDevice at node.qmem
 		# connection = QuantumConnection for atom to 50:50 beam splitter
 		# test_conn = ClassicalConnection from 50:50 beam splitter to atom
+
+		# prep_fidelity = fidelity of atom-photon entangling operation
+		# reset_delay = delay time between successive photon pulses (e.g. accounting for gate times)
 
 		# Keeping track of nodes.
 		self.myID = self.node.nodeID
@@ -45,12 +61,23 @@ class AtomProtocol(TimedProtocol):
 		# Connection through which instructions from the beam splitter will be delivered.
 		self.test_conn = test_conn
 
+		# Delay between successive photon pulses in Barrett-Kok.
+		self.reset_delay = reset_delay
+		# Set up event handler, and what the event handler should wait for.
+		self.next_photon_handler = pydynaa.EventHandler(lambda event: self.run_protocol_later())
+		self._wait(self.next_photon_handler, entity = self, event_type = self._EVT_NEXT_PHOTON_TRIGGER)
+
 		# Stage of Barrett-Kok protocol.
 		# 0 = idle
-		# 1 = sent out first photon, waiting for "failed" or "next stage" instruction
-		# 2 = sent out second photon, waiting for "failed" or "succeeded" signal
+		# 1 = waiting for "failed" (0 or 2 photons detected) or "succeeded" signal for first photon
+		# 2 = waiting for "failed" or "succeeded" signal for second photon
 		# 3 = succeeded! (if "failed", then state 0)
+		# Both signals need to be "succeeded" for BK to have succeeded on aggregate.
 		self.stage = 0
+
+		# Number of photons that have been sent out already.
+		# Always maintained at <= 2 (if "failed", then returned to state 0).
+		self.num_sent_photons = 0
 
 		# Whether to initiate entanglement protocol at each time step.
 		self.to_run = to_run
@@ -69,6 +96,9 @@ class AtomProtocol(TimedProtocol):
 		# Whether to print internal procedures to console.
 		self.to_print = to_print
 
+		# Dephasing operation, to model the noise from state preparation.
+		self.prep_noise = dephasing(prep_fidelity)
+
 	def set_state(self):
 		# Atom to be in [1, 1] (to be normalized).
 		# Atomic state [0, 1] is the state resonant with the laser transition.
@@ -79,6 +109,9 @@ class AtomProtocol(TimedProtocol):
 				np.array([[1, 1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0], [1, 1, 1, 1]]) / np.sqrt(2))
 		nq.operate([self.atom, self.photon], phiP)
 
+		# Apply noise to the photon.
+		self.prep_noise(self.photon)
+
 		# Now, atom and photon are entangled states.
 		# Set quantum memory to the atom state.
 		self.nodememory.add_qubit(self.atom, 0)
@@ -87,44 +120,58 @@ class AtomProtocol(TimedProtocol):
 		# Send photon down the connection.
 		self.conn.put_from(self.myID, data = [self.photon])
 
+	def run_protocol(self):
+		if self.to_run:
+			self.run_protocol_inner()
+
 	def run_protocol_inner(self):
 		# Reset self.atom and self.photon.
 		self.stage = 0
+		self.num_sent_photons = 0
 		self.atom, self.photon = None, None
 		self.nodememory.release_qubit(0)
 		self.set_state()
 		self.send_photon()
 		self.stage = 1
+		self.num_sent_photons = 1
+		# Wait for delay before sending the next photon.
+		self._schedule_after(self.reset_delay, self._EVT_NEXT_PHOTON_TRIGGER)
 		if self.to_print: print("{} sent!".format(self.myID))
 
-	def run_protocol(self):
-		if self.to_run:
-			self.run_protocol_inner()
+	def run_protocol_later(self):
+		# Second part of BK, to be run after a delay (marked by _EVT_NEXT_PHOTON_TRIGGER).
 
-	def verify_state(self):
-		# Flip atomic state.
-		# Recall that ns.X is the permutation operator.
-		self.nodememory.operate(ns.X, 0) # note that self.atom is mutated too
+		# If the first photon is already known to be unsuccessful (e.g. over short links),
+		# then there is no need to send the second photon.
+		if self.stage == 0:
+			return
+		else:
+			if self.num_sent_photons != 1: print(self.num_sent_photons)
+			assert self.num_sent_photons == 1
 
-		# Create new photonic Fock state.
-		# (The old self.photon was already measured.)
-		self.photon, = nq.create_qubits(1)
-		
-		# Entangle self.atom and self.photon.
-		# Note that self.photon is initially [1, 0], i.e. in state |0>.
-		nq.operate([self.atom, self.photon], self.permute34)
-		
-		self.send_photon()
+			# Flip atomic state.
+			# Recall that ns.X is the permutation operator.
+			self.nodememory.operate(ns.X, 0) # note that self.atom is mutated too
 
-		if self.to_print: print("verification {} sent!".format(self.myID))
+			# Create new photonic Fock state.
+			# (The old self.photon was already measured.)
+			self.photon, = nq.create_qubits(1)
+			
+			# Entangle self.atom and self.photon.
+			# Note that self.photon is initially [1, 0], i.e. in state |0>.
+			nq.operate([self.atom, self.photon], self.permute34)
+			
+			self.send_photon()
+			self.num_sent_photons = 2
+
+			if self.to_print: print(ns.sim_time(), "verification {} sent!".format(self.myID))
 
 	def verification(self, args = None):
-		# Callback function when the first phase of Barrett-Kok is successful.
+		# Callback function when the detectors return information to the nodes..
 		data, _ = self.test_conn.get_as(self.myID)
 		[msg, ] = data
-		to_print = False
+		to_print = self.to_print
 		if msg[:7] == 'success' and self.stage == 1:
-			self.verify_state()
 			# The incoming message is structured as 'success01' or 'success10'.
 			self.detector_order = msg[-2:]
 			self.stage = 2
@@ -144,6 +191,7 @@ class AtomProtocol(TimedProtocol):
 			if self.stage == 2: pass # can choose to print here, or at every failure
 			if to_print: print('node', self.myID, '\n', self.atom.qstate.dm)
 			self.stage = 0
+			self.num_sent_photons = 0
 
 	def data_received(self, args = None):
 		super().data_received(args)
@@ -221,9 +269,9 @@ class BeamSplitterProtocol(TimedProtocol):
 		if self.last_incoming is None:
 			self.last_incoming = [channel, data, ns.simutil.sim_time()]
 		# Check if the current qubit has been sent at a time close to the previous qubit.
-		# For now, events that occur <= 1 ns apart are considered simultaneous.
-		elif ns.simutil.sim_time() - self.last_incoming[-1] <= 1 and channel != self.last_incoming[0]: 
-			# TODO: fix magic number
+		# Events that occur <= time_step (in ns) apart are considered simultaneous.
+		elif ns.simutil.sim_time() - self.last_incoming[-1] <= self.timeStep \
+			and channel != self.last_incoming[0]: 
 			# Operate directly on photonic Fock state qubits.
 			# TODO: is this correct? Should entangle atomic qubits.
 			if channel == 2:
@@ -257,13 +305,21 @@ class BeamSplitterProtocol(TimedProtocol):
 
 class DetectorProtocol(TimedProtocol):
 	''' Protocol for detectors. '''
-	def __init__(self, time_step, node, connection, test_conn = None, to_print = False):
+	def __init__(self, time_step, node, connection, test_conn = None, to_print = False, \
+					pdark = 1e-7, efficiency = 0.93):
 		super().__init__(time_step, node = node, connection = connection)
 		# node = QuantumNode for detector (does not store qubits)
 		# test_conn = ClassicalConnection back to beamsplitter 
 
 		self.test_conn = test_conn
 		self.to_print = to_print
+		# Dark count probability.
+		# pdark = prob of measuring 1 when Fock state is 0.
+		# Default value of pdark = 1e-7 comes from ~100 dark counts per second, 
+		# and 12 ns (= dead time) windows.
+		self.pdark = pdark
+		# Detector efficiency.
+		self.efficiency = efficiency
 
 		# Keeping track of nodes.
 		self.myID = self.node.nodeID
@@ -277,18 +333,20 @@ class DetectorProtocol(TimedProtocol):
 	def process_data(self):
 		[data,], _ = self.conn.get_as(self.myID)
 		
+		# Model losses due to finite detection efficiency using amplitude damping.
+		nq.qubitapi.amplitude_dampen(data, 1.-self.efficiency, prob = 1)
+
 		# Model dark counts using (reverse) amplitude damping.
 		# Due to entanglement, these dark counts will affect the statistics of the
 		# atoms' density matrices.
-		# pdark = prob of measuring 1 when Fock state is 0
-		pdark = 1e-7 # based on ~100 dark counts per second, and 12 ns windows
-		nq.qubitapi.amplitude_dampen(data, pdark, prob = 0)
+		nq.qubitapi.amplitude_dampen(data, self.pdark, prob = 0)
 
 		success, prob = nq.measure(data, observable = ns.Z)
 		# Note ns.Z = [[1, 0], [0, -1]].
 		# success == 0 means that the positive eigenvalue was observed;
 		# success == 1 means that the negative eigenvalue was observed instead.
-		if self.to_print: print("{} measured {} with probability {}".format(self.myID, success, prob))
+		if self.to_print: print(ns.sim_time(), \
+								"{} measured {} with probability {}".format(self.myID, success, prob))
 
 		if self.test_conn is not None:
 			self.test_conn.put_from(self.myID, data = [success])
@@ -357,7 +415,8 @@ class StateCheckProtocol(TimedProtocol):
 			self.last_incoming = [channel, data, ns.simutil.sim_time()]
 		# Check if the current qubit has been sent at a time close to the previous qubit.
 		# For now, events that occur <= 1 ns apart are considered simultaneous.
-		elif ns.simutil.sim_time() - self.last_incoming[-1] <= 1 and channel != self.last_incoming[0]: 
+		elif ns.simutil.sim_time() - self.last_incoming[-1] <= self.timeStep \
+			and channel != self.last_incoming[0]:
 			# Check if the detectors, combined, only detected one photon.
 			# Also send data on which detector measured a photon, so that the atoms can
 			# correct for the phase difference.
@@ -406,6 +465,9 @@ class QubitLossNoiseModel(QuantumNoiseModel):
 		nq.qubitapi.amplitude_dampen(qubit, self.prob_loss, prob = 1)
 
 if __name__ == '__main__':
+	link_delay = 10 # from nodes to detector station
+	reset_delay = 1
+	
 	ns.simutil.sim_reset()
 	nq.set_qstate_formalism(ns.QFormalism.DM)
 
@@ -426,21 +488,24 @@ if __name__ == '__main__':
 	beamsplitter = QuantumNode("beamsplitter", 3)
 
 	# To incorporate losses, need to define new FibreLossModel objects for each Connection.
-	conn1 = QuantumConnection(source1, beamsplitter, noise_model = QubitLossNoiseModel(0.1))
-	conn2 = QuantumConnection(source2, beamsplitter, noise_model = QubitLossNoiseModel(0.1))
+	conn1 = QuantumConnection(source1, beamsplitter, noise_model = QubitLossNoiseModel(0.1), \
+									delay_model = FixedDelayModel(link_delay))
+	conn2 = QuantumConnection(source2, beamsplitter, noise_model = QubitLossNoiseModel(0.1), \
+									delay_model = FixedDelayModel(link_delay))
 	
 	# Link the detectors back to the beam splitter.
 	test_conn1 = ClassicalConnection(detector1, beamsplitter)
 	test_conn2 = ClassicalConnection(detector2, beamsplitter)
-	test_conn3 = ClassicalConnection(beamsplitter, source1)
-	test_conn4 = ClassicalConnection(beamsplitter, source2)
+	test_conn3 = ClassicalConnection(beamsplitter, source1, delay_model = FixedDelayModel(link_delay))
+	test_conn4 = ClassicalConnection(beamsplitter, source2, delay_model = FixedDelayModel(link_delay))
 
 	# Need to place this after the test connections, so that we can reference them.
 	conn3 = QuantumConnection(beamsplitter, detector1)
 	conn4 = QuantumConnection(beamsplitter, detector2)
-	
-	proto1 = AtomProtocol(50, source1, conn1, test_conn3, to_correct = True)
-	proto2 = AtomProtocol(50, source2, conn2, test_conn4)
+
+	# Only one of the two has to correct.
+	proto1 = AtomProtocol(50, source1, conn1, test_conn3, to_correct = True, reset_delay = reset_delay)
+	proto2 = AtomProtocol(50, source2, conn2, test_conn4, reset_delay = reset_delay)
 
 	proto3 = DetectorProtocol(50, detector1, conn3, test_conn1)
 	proto4 = DetectorProtocol(50, detector2, conn4, test_conn2)
