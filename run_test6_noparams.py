@@ -15,7 +15,10 @@ IDENTIFIER = input('IDENTIFIER (no quotes, "/") = ')
 channel_length = float(input('channel_length = '))
 num_repeats = [int(input('trial index = ')),]
 duration = float(input('duration = '))
-is_hybrid = bool(input('is_hybrid = '))
+type_input = input('hybrid or trad? = ')
+if type_input == 'hybrid': is_hybrid = True
+elif type_input == 'trad': is_hybrid = False
+else: raise Exception("'hybrid' or 'trad' only")
 
 PREFIX = 'NetSquidData3/run_test6_3/'+IDENTIFIER+'/'
 
