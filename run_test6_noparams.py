@@ -28,6 +28,8 @@ PREFIX = 'NetSquidData3/run_test6_3/'+IDENTIFIER+'/'
 
 num_repeaters = [1] # [1, 3, 5, 7, 9, 11]
 num_qubits = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30] # even numbers
+if to_correct:
+	num_qubits = [16, 18, 20, 22, 24, 26, 28, 30]
 #num_qubits = [2,]
 #channel_length = 1 # in kilometers
 #num_repeats = range(1)
