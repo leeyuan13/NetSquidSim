@@ -427,6 +427,7 @@ class PlannerControlProtocol(TimedProtocol):
 						if self.is_holding:
 							self.holding_BSM.append((layer, index, position))
 						else:
+							self.is_holding = True
 							self.rep_conns[position-1].put_from(self.myID, data = [('do_BSM', index)])
 			elif data[0] == 'move_qubit_success':
 				_, index = data
@@ -464,14 +465,13 @@ class PlannerControlProtocol(TimedProtocol):
 				else:
 					assert lbell[0] > 0
 					# Get register index.
-					lindex = self.layer2register[(layer, position)]
+					lindex = self.layer2register[(layer, lbell[0])]
 					self.rep_conns[lbell[0]-1].put_from(self.myID, \
 										data=[("unitary", lindex, lbell[1], results[0], results[1]),])
 				# Update connections.
 				# If left and right are the ends, then done!
 				self.chain[layer][lbell][1] = rbell
 				self.chain[layer][rbell][0] = lbell
-				if self.to_print: print(layer, 'update', 'BSM', self.chain[layer])
 				if lbell[0] == 'left' and rbell[0] == 'right':
 					if self.to_print: print(node, 'complete!', index1, index2)
 					# Extract data.
@@ -484,7 +484,7 @@ class PlannerControlProtocol(TimedProtocol):
 											data = [('complete', self.layer2register[(layer, 0)])])
 					self.right_conn.put_from(self.myID, \
 								data = [('complete', self.layer2register[(layer, self.num_rep+1)])])
-					if self.to_print: print(layer, 'complete')
+					if True: print(layer, 'complete', sim_time())
 					# If infinite bank, these would already have been freed up for other entanglements.
 					# If finite bank, free up these registers for further entanglements.
 					# Also move into new layers if necessary.
@@ -517,6 +517,7 @@ class PlannerControlProtocol(TimedProtocol):
 		# Set network clock cycle.
 		# Decide which side the nodes try.
 		# Active registers.
+		if True: print('clock cycle', sim_time())
 		active_registers = set(self.layer2register.keys()) # set of (layer, position)
 		# Divide registers into layers.
 		layered_registers = dict()
@@ -542,6 +543,7 @@ class PlannerControlProtocol(TimedProtocol):
 			#						 (2) the left-side register has no entanglement to the right, and
 			#						 (3) the right-side register has no entanglement to the left.
 			last_tried_link = None # label for last tried link
+			print(layer, self.chain.get(layer, dict()))
 			for i in range(len(layered_registers[layer])-1):
 				# Check if the link to the left has been tried.
 				left_register = layered_registers[layer][i]
@@ -567,8 +569,6 @@ class PlannerControlProtocol(TimedProtocol):
 							or self.chain.get(layer,dict()).get((next_register[0],1),[None,None])[0] \
 							is not None:
 						continue
-				if self.to_print: print(layer, 'network time step', layered_registers[layer], \
-											self.chain.get(layer, dict()))
 				assert self.chain.get(layer, dict()).get((left_register[0], 0), [None, None])[1] \
 					is None, (layer, left_register, self.chain[layer][(left_register[0], 0)])
 				assert self.chain.get(layer, dict()).get((left_register[0], 1), [None, None])[1] \
@@ -583,6 +583,7 @@ class PlannerControlProtocol(TimedProtocol):
 				instructions[left_register[0]].append((left_register[1], 2))
 				instructions[next_register[0]].append((next_register[1], 1))
 				last_tried_link = left_register[0]
+				print('\t', 'links tried', last_tried_link, left_register, next_register)
 		# Inform source and repeater nodes.
 		self.left_conn.put_from(self.myID, \
 							data = [('clock_cycle', [ind[0] for ind in instructions[0]]),])
@@ -1195,6 +1196,12 @@ class Chain:
 		self.links[self.num_repeaters].\
 					set_protocols(self.rep_nodes[self.num_repeaters-1].protos, self.right_node.protos)
 		self.links[self.num_repeaters].set_node_protocols()
+		
+		text = str(self.left_node.scont.nodeID) + '--'
+		for i in range(self.num_repeaters):
+			text += str(self.rep_nodes[i].rep_control.nodeID) + '--'
+		text += str(self.right_node.scont.nodeID)
+		print(text)
 
 	def make_planner_control(self):
 		assert self.links is not None
@@ -1331,4 +1338,5 @@ def run_simulation(num_repeaters, num_modes, source_times, rep_times, channel_lo
 	return chain
 
 if __name__ == '__main__':
-	chain = run_simulation(3, 2, [[1e9, 1e9],], [[1e9, 1e9], [10e9, 10e9]], 1e-4, duration = 10)
+	#chain = run_simulation(3, 2, [[1e9, 1e9],], [[1e9, 1e9], [10e9, 10e9]], 1e-4, duration = 10)
+	chain = run_simulation(1, 10, [[1e9, 1e9],], [[1e9, 1e9], [10e9, 10e9]], 1e-4, duration = 20)

@@ -15,11 +15,14 @@ from traditional5 import run_simulation as run_trad
 IDENTIFIER = input('IDENTIFIER (no quotes, "/") = ')
 channel_length = float(input('channel_length = '))
 num_repeats = [int(input('trial index = ')),]
-type_input = input('hybrid or trad? = ')
+type_input = input('hybrid or trad? ')
 if type_input == 'hybrid': is_hybrid = True
 elif type_input == 'trad': is_hybrid = False
 else: raise Exception("'hybrid' or 'trad' only")
 duration = float(input('duration = '))
+
+# Temporary correction? (Aug 10)
+to_correct = bool(int(input('to_correct = 0/1? ')))
 
 PREFIX = 'NetSquidData3/run_test6_3/'+IDENTIFIER+'/'
 
@@ -165,10 +168,15 @@ def get_params(num_repeaters, m, channel_length, duration):
 					10*local_time + BSM_time
 	time_bin = 1e-2
 	detector_pdark = 1e-8 * detector_dead_time
-	return (num_repeaters, int(m/2), source_times, rep_times, channel_loss, duration, \
+	return (source_times, rep_times, channel_loss, duration, \
 				repeater_channel_loss, noise_on_nuclear_params, link_delay, \
 				link_time, local_delay, local_time, time_bin, \
 				detector_pdark, detector_eff, gate_fidelity, meas_fidelity, prep_fidelity, reset_delay)
+
+def get_params_hybrid(num_repeaters, m, channel_length, duration):
+	return (num_repeaters, int(m/2)) + get_params(num_repeaters, m, channel_length, duration)
+def get_params_trad(num_repeaters, m, channel_length, duration):
+	return (num_repeaters, m) + get_params(num_repeaters, m, channel_length, duration)
 
 if is_hybrid:
 	for nr in num_repeaters:
@@ -176,7 +184,7 @@ if is_hybrid:
 			for k in num_repeats:
 				print('hybrid', nr, m, k)
 				start_time = time.time()
-				chain = run_hybrid(*get_params(nr, m, channel_length, duration))
+				chain = run_hybrid(*get_params_hybrid(nr, m, channel_length, duration))
 				end_time = time.time()
 				print((end_time-start_time)/60.0, 'minutes')
 				result = chain.planner_control_prot.data
@@ -190,7 +198,7 @@ else:
 			for k in num_repeats:
 				print('trad', nr, m, k)
 				start_time = time.time()
-				chain = run_trad(*get_params(nr, m, channel_length, duration))
+				chain = run_trad(*get_params_trad(nr, m, channel_length, duration))
 				end_time = time.time()
 				print((end_time-start_time)/60.0, 'minutes')
 				result = chain.planner_control_prot.data

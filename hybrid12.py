@@ -386,15 +386,15 @@ class PlannerControlProtocol(TimedProtocol):
 					
 				# Check if any entanglement has been completed.
 				if is_complete:
-					if self.to_print: print(node, 'complete!', index1, index2)
+					if self.to_print: print(node, 'complete!', lbell[1], rbell[1])
 					# Extract data.
 					self.key_times.append(sim_time())
 					self.key_dm.append(nq.reduced_dm([self.left_qubits[lbell[2]], \
 																self.right_qubits[rbell[2]]]))
 					if self.to_print: print(sim_time(), '\n', self.key_dm[-1])
 					# Inform nodes.
-					self.left_conn.put_from(self.myID, data = [('complete', index1),])
-					self.right_conn.put_from(self.myID, data = [('complete', index2),])
+					self.left_conn.put_from(self.myID, data = [('complete', lbell[1]),])
+					self.right_conn.put_from(self.myID, data = [('complete', rbell[1]),])
 					# If infinite bank, these would already have been freed up for other entanglements.
 					# If finite bank, free up these registers for further entanglements.
 
@@ -407,6 +407,7 @@ class PlannerControlProtocol(TimedProtocol):
 	def run_protocol(self):
 		# Set network clock cycle.
 		# Notify all nodes that they can start Barrett-Kok over long distances.
+		if self.to_print: print('clock cycle', sim_time(), self.left2right)
 		self.left_conn.put_from(self.myID, data = [("clock_cycle",),])
 		self.right_conn.put_from(self.myID, data = [("clock_cycle",),])
 		for conn in self.rep_conns:
@@ -470,6 +471,7 @@ class ScontProtocol(TimedProtocol):
 
 	def free_up(self, data):
 		# Sanity check.
+		if self.to_print: print(self.myID, 'free_up', data)
 		assert self.status[data[1]] != 0
 		# Free up a register to do future Barrett-Kok.
 		self.status[data[1]] = 0
@@ -1374,4 +1376,3 @@ def run_simulation(num_repeaters, num_modes, source_times, rep_times, channel_lo
 if __name__ == '__main__':
 	chain = run_simulation(3, 2, [[1e9, 1e9],], [[1e9, 1e9], [10e9, 10e9]], 1e-4, duration = 10)
 
-	# TODO: fix BSM untiaries (rates are OK for now)
