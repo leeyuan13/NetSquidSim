@@ -484,7 +484,7 @@ class PlannerControlProtocol(TimedProtocol):
 											data = [('complete', self.layer2register[(layer, 0)])])
 					self.right_conn.put_from(self.myID, \
 								data = [('complete', self.layer2register[(layer, self.num_rep+1)])])
-					if True: print(layer, 'complete', sim_time())
+					if self.to_print: print(layer, 'complete', sim_time())
 					# If infinite bank, these would already have been freed up for other entanglements.
 					# If finite bank, free up these registers for further entanglements.
 					# Also move into new layers if necessary.
@@ -517,7 +517,7 @@ class PlannerControlProtocol(TimedProtocol):
 		# Set network clock cycle.
 		# Decide which side the nodes try.
 		# Active registers.
-		if True: print('clock cycle', sim_time())
+		if self.to_print: print('clock cycle', sim_time())
 		active_registers = set(self.layer2register.keys()) # set of (layer, position)
 		# Divide registers into layers.
 		layered_registers = dict()
