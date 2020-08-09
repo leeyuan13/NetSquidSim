@@ -270,7 +270,7 @@ class RepeaterControlProtocol(TimedProtocol):
 class PlannerControlProtocol(TimedProtocol):
 	''' Protocol for central planner. Assume a linear repeater chain with a left and right.'''
 	def __init__(self, time_step, node, left_scont, right_scont, left_conn, right_conn, rep_conns,\
-						to_print = True):
+						to_print = False):
 		# time_step = network clock cycle
 		# rep_conns = ClassicalConnections to repeater controls
 		super().__init__(time_step, node = node, connection = None)
@@ -428,8 +428,6 @@ class ScontProtocol(TimedProtocol):
 
 		# Status = 1 if the source node is entangled with the adjacent repeater node.
 		self.status = [0]*len(conns)
-
-		self.to_print = to_print
 
 		# Whether we treat the ends of the repeater chain have infinite banks of registers.
 		self.is_infinite_bank = is_infinite_bank
