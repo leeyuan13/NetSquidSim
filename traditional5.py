@@ -543,7 +543,6 @@ class PlannerControlProtocol(TimedProtocol):
 			#						 (2) the left-side register has no entanglement to the right, and
 			#						 (3) the right-side register has no entanglement to the left.
 			last_tried_link = None # label for last tried link
-			print(layer, self.chain.get(layer, dict()))
 			for i in range(len(layered_registers[layer])-1):
 				# Check if the link to the left has been tried.
 				left_register = layered_registers[layer][i]
@@ -583,7 +582,6 @@ class PlannerControlProtocol(TimedProtocol):
 				instructions[left_register[0]].append((left_register[1], 2))
 				instructions[next_register[0]].append((next_register[1], 1))
 				last_tried_link = left_register[0]
-				print('\t', 'links tried', last_tried_link, left_register, next_register)
 		# Inform source and repeater nodes.
 		self.left_conn.put_from(self.myID, \
 							data = [('clock_cycle', [ind[0] for ind in instructions[0]]),])
