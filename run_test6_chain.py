@@ -21,7 +21,7 @@ elif type_input == 'trad': is_hybrid = False
 else: raise Exception("'hybrid' or 'trad' only")
 duration = float(input('duration = '))
 
-PREFIX = 'NetSquidData3/run_test6_3/'+IDENTIFIER+'/'
+PREFIX = 'NetSquidData3/run_test6_4/'+IDENTIFIER+'/'
 
 num_repeaters = [3, 5, 7] # [1, 3, 5, 7, 9, 11]
 #num_qubits = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30] # even numbers
@@ -117,7 +117,7 @@ detector_eff = 0.93
 
 # Fidelity of two-qubit gates and measurement.
 # Note that single-qubit gates can be done with high fidelity and relatively low times.
-gate_fidelity = 0.98 # 0.98 is the value from Rozpedek et al, but for 2 registers,
+gate_fidelity = 0.992 # 0.98 is the value from Rozpedek et al, but for 2 registers,
 					  # hybrid fidelity is 0.87 and trad fidelity is 0.91.
 					  # gate_fidelity = 0.99 gives hybrid = 0.928, trad = 0.930.
 					  # gate_fidelity = 0.999 gives hybrid = 0.98, trad = 0.95.
