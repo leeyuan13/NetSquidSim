@@ -97,8 +97,6 @@ class RepeaterControlProtocol(TimedProtocol):
 				self.clock_cycle()
 			elif isinstance(data, tuple) and data[0] == "do_BSM":
 				self.do_BSM(data)
-			elif isinstance(data, tuple) and data[0] == "unitary":
-				self.apply_unitary(data)
 
 	def clock_cycle(self):
 		# Called at the start of each network clock cycle by the central planner.
@@ -121,19 +119,18 @@ class RepeaterControlProtocol(TimedProtocol):
 		self.conn1[index].put_from(self.myID, data = [('BSM',)])
 		self.conn2[other_index].put_from(self.myID, data = [('BSM',)])
 
-	def apply_unitary(self, data):
+	def apply_unitary(self, bank, index, isX, isZ):
 		# Method to run when the central planner wants to apply a unitary based on an adjacent BSM.
-		_, bank, index, isX, isZ = data
 		if bank == 1:
 			# Identify whether the qubit that was connected to an adjacent node is in the electron
 			# or nuclear spin.
 			isnuclear = (self.status1[index][1] == 1)
-			assert isnuclear or (self.status1[index][0] == 1), str(self.status1[index])
+			assert isnuclear or (self.status1[index][0] == 1), str((bank, index, self.status1[index]))
 			if isX == 1: nq.operate(self.rep1[index].qmemory.get_qubit(isnuclear), ns.X)
 			if isZ == 1: nq.operate(self.rep1[index].qmemory.get_qubit(isnuclear), ns.Z)
 		elif bank == 2:
 			isnuclear = (self.status2[index][1] == 1)
-			assert isnuclear or (self.status2[index][0] == 1), str(self.status2[index])
+			assert isnuclear or (self.status2[index][0] == 1), str((bank, index, self.status2[index]))
 			if isX == 1: nq.operate(self.rep2[index].qmemory.get_qubit(isnuclear), ns.X)
 			if isZ == 1: nq.operate(self.rep2[index].qmemory.get_qubit(isnuclear), ns.Z)
 	
@@ -193,6 +190,7 @@ class RepeaterControlProtocol(TimedProtocol):
 				# 	2 parity flips (one on each side) cancel out.
 				results = data[2]
 				self.status1[index][0], self.status1[index][1] = 0, 0
+				if self.to_print: print('BSM_success', self.myID, bank, index) # unitary_debug_mode
 				# Message format: (index of register in bank 1, index of register in bank 2,
 				#					bank: 1 or 2, BSM results: (0,0), (0,1), (1,0), (1,1))
 				self.planner_conn.put_from(self.myID, data = [(index, other_index, bank, results),])
@@ -227,6 +225,7 @@ class RepeaterControlProtocol(TimedProtocol):
 				self.BK_BSM_wait2.pop(index)
 				results = data[2]
 				self.status2[index][0], self.status2[index][1] = 0, 0
+				if self.to_print: print('BSM_success', self.myID, bank, index) # unitary_debug_mode
 				self.planner_conn.put_from(self.myID, data = [(other_index, index, bank, results),])
 			elif data[0] == "move_qubit_success":
 				self.status2[index][1] = self.status2[index][0]
@@ -269,8 +268,8 @@ class RepeaterControlProtocol(TimedProtocol):
 			
 class PlannerControlProtocol(TimedProtocol):
 	''' Protocol for central planner. Assume a linear repeater chain with a left and right.'''
-	def __init__(self, time_step, node, left_scont, right_scont, left_conn, right_conn, rep_conns,\
-						to_print = False):
+	def __init__(self, time_step, node, left_scont, right_scont, left_conn, right_conn, \
+						rep_controls, rep_conns, to_print = False, unitary_debug_mode = False):
 		# time_step = network clock cycle
 		# rep_conns = ClassicalConnections to repeater controls
 		super().__init__(time_step, node = node, connection = None)
@@ -280,8 +279,11 @@ class PlannerControlProtocol(TimedProtocol):
 		self.right_scont = right_scont
 		self.left_conn = left_conn
 		self.right_conn = right_conn
+		self.rep_controls = rep_controls # want RepeaterControlProtocol to do unitaries
 		self.rep_conns = rep_conns
 		self.num_rep = len(rep_conns)
+		# Note: we directly apply unitaries from the central planner because RepeaterControlProtocol
+		# does not need to send subsequent messages in order to apply these unitaries (unlike BSMs).
 
 		# self.left2right[register] = rightmost entangled register
 		# registers are specified by (index in rep_conns, index in bank) or
@@ -308,8 +310,12 @@ class PlannerControlProtocol(TimedProtocol):
 		# Whether the chain is waiting for 2BSM+unitaries to be done.
 		self.is_holding = False
 		self.holding_BSM = deque()
+		# Counting parities for the number of BSM results reported.
+		self.num_BSM_results = 0
 
 		self.to_print = to_print
+		# Whether to debug errors arising from the application of unitaries after BSMs.
+		self.unitary_debug_mode = unitary_debug_mode
 
 	def local_link(self, node, args):
 		# node = integer representing an index in rep_conns
@@ -318,7 +324,10 @@ class PlannerControlProtocol(TimedProtocol):
 		info, _ = self.rep_conns[node].get_as(self.myID)
 		for data in info:
 			if data[0] == 'ready_BSM': # indicator of readiness to do BSM
-				if not self.is_holding: 
+				if self.unitary_debug_mode:
+					print(data[0], node, data[1], data[2], self.is_holding, len(self.holding_BSM))
+				if not self.is_holding:
+					assert len(self.holding_BSM) == 0
 					self.rep_conns[node].put_from(self.myID, data = [('do_BSM',) + data[1:]])
 					self.is_holding = True
 				else:
@@ -326,6 +335,10 @@ class PlannerControlProtocol(TimedProtocol):
 			else: # BSM results
 				index1, index2, bank, results = data
 				self.is_holding = False
+				self.num_BSM_results += 1
+				if self.unitary_debug_mode:
+					print('bank 1', [self.rep_controls[i].status1 for i in range(self.num_rep)])
+					print('bank 2', [self.rep_controls[i].status2 for i in range(self.num_rep)])
 				if self.to_print: print(node, data)
 				if self.waiting.get((node, index1, index2)) is None:
 					# The new connection is between bank 2 of self.right2left[node] and bank 1 of 
@@ -366,6 +379,8 @@ class PlannerControlProtocol(TimedProtocol):
 				assert rbell[0] != 'left'
 
 				# Apply unitary for BSM.
+				if self.unitary_debug_mode:
+					print(node, bank, index1, index2, (lbell if bank == 1 else rbell), self.left2right)
 				if bank == 1:
 					if lbell[0] == 'left':
 						lqubit = self.left_qubits[lbell[2]] # qubits from the list
@@ -373,16 +388,14 @@ class PlannerControlProtocol(TimedProtocol):
 						if results[0] == 1: nq.operate(lqubit, ns.X)
 						if results[1] == 1: nq.operate(lqubit, ns.Z)
 					else:
-						self.rep_conns[lbell[0]].put_from(self.myID, \
-												data=[("unitary", 2, lbell[1], results[0], results[1]),])
+						self.rep_controls[lbell[0]].apply_unitary(2, lbell[1], results[0], results[1])
 				elif bank == 2:
 					if rbell[0] == 'right':
 						rqubit = self.right_qubits[rbell[2]]
 						if results[0] == 1: nq.operate(rqubit, ns.X)
 						if results[1] == 1: nq.operate(rqubit, ns.Z)
 					else:
-						self.rep_conns[rbell[0]].put_from(self.myID, \
-												data=[("unitary", 1, rbell[1], results[0], results[1]),])
+						self.rep_controls[rbell[0]].apply_unitary(1, rbell[1], results[0], results[1])
 					
 				# Check if any entanglement has been completed.
 				if is_complete:
@@ -397,12 +410,18 @@ class PlannerControlProtocol(TimedProtocol):
 					self.right_conn.put_from(self.myID, data = [('complete', rbell[1]),])
 					# If infinite bank, these would already have been freed up for other entanglements.
 					# If finite bank, free up these registers for further entanglements.
+					# Remove these from left2right and right2left.
+					self.left2right.pop(lbell)
+					self.right2left.pop(rbell)
 
 				# Do next BSM, if any.
-				if len(self.holding_BSM) > 0:
+				# Note that we only start the next BSMs when the previous ones have reported results.
+				# BSMs are done in pairs, so we need to wait for both BSMs in the previous round.
+				if len(self.holding_BSM) > 0 and self.num_BSM_results % 2 == 0:
 					nn, dd = self.holding_BSM.popleft() # node, data
 					self.rep_conns[nn].put_from(self.myID, data = [('do_BSM',) + dd])
 					self.is_holding = True
+					if self.unitary_debug_mode: print('do_BSM from holding', nn, dd[0], dd[1])
 
 	def run_protocol(self):
 		# Set network clock cycle.
@@ -412,6 +431,13 @@ class PlannerControlProtocol(TimedProtocol):
 		self.right_conn.put_from(self.myID, data = [("clock_cycle",),])
 		for conn in self.rep_conns:
 			conn.put_from(self.myID, data = [("clock_cycle",),])
+		import time
+		try:
+			self.prev_time = self.curr_time
+		except:
+			self.prev_time = time.time()
+		self.curr_time = time.time()
+		print('network', ns.sim_time(), self.curr_time - self.prev_time)
 
 class ScontProtocol(TimedProtocol):
 	''' Protocol for source control.'''
@@ -1256,10 +1282,12 @@ class Chain:
 		self.right_node.scont_prot.set_planner_conn(right_conn)
 		for i in range(self.num_repeaters): 
 			self.rep_nodes[i].rep_control_prot.set_planner_conn(rep_conns[i])
+		# List of repeater control protocols.
+		rep_controls = [self.rep_nodes[i].rep_control_prot for i in range(self.num_repeaters)]
 		# Set up protocol.
 		self.planner_control_prot = PlannerControlProtocol(self.NETWORK_RATE, self.planner_control,\
 										self.left_node.scont_prot, self.right_node.scont_prot,\
-										left_conn, right_conn, rep_conns)
+										left_conn, right_conn, rep_controls, rep_conns)
 		# Set up handlers.
 		left_conn.register_handler(self.left_node.scont.nodeID, \
 													self.left_node.scont_prot.from_planner_conn)
@@ -1372,5 +1400,11 @@ def run_simulation(num_repeaters, num_modes, source_times, rep_times, channel_lo
 	return chain
 
 if __name__ == '__main__':
-	chain = run_simulation(3, 2, [[1e9, 1e9],], [[1e9, 1e9], [10e9, 10e9]], 1e-4, duration = 10)
-
+	import time
+	start_time = time.time()
+	#chain = run_simulation(3, 2, [[1e9, 1e9],], [[1e9, 1e9], [10e9, 10e9]], 1e-4, duration = 10)
+	chain = run_simulation(3, 2, [[1e9, 1e9],], [[1e9, 1e9], [10e9, 10e9]], 1e-4, duration = 1e3,\
+							link_delay = 1, link_time = 5, local_delay = 1e-2, local_time = 1e-1, \
+							time_bin = 1e-5, reset_delay = 1e-4)
+	end_time = time.time()
+	print(end_time - start_time)

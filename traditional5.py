@@ -590,7 +590,7 @@ class PlannerControlProtocol(TimedProtocol):
 		for j in range(1, self.num_rep+1):
 			self.rep_conns[j-1].put_from(self.myID, \
 							data = [('clock_cycle', instructions[j]),])
-
+		
 class TraditionalRepeater:
 	''' 
 	Registers associated with a traditional repeater node. 
@@ -1336,5 +1336,14 @@ def run_simulation(num_repeaters, num_modes, source_times, rep_times, channel_lo
 	return chain
 
 if __name__ == '__main__':
+	import time
+	start_time = time.time()
 	#chain = run_simulation(3, 2, [[1e9, 1e9],], [[1e9, 1e9], [10e9, 10e9]], 1e-4, duration = 10)
-	chain = run_simulation(1, 10, [[1e9, 1e9],], [[1e9, 1e9], [10e9, 10e9]], 1e-4, duration = 20)
+	#chain = run_simulation(1, 10, [[1e9, 1e9],], [[1e9, 1e9], [10e9, 10e9]], 1e-4, duration = 20)
+	chain = run_simulation(3, 2, [[1e9, 1e9],], [[1e9, 1e9], [10e9, 10e9]], 1e-4, duration = 1e3,\
+							link_delay = 1, link_time = 5, local_delay = 1e-2, local_time = 1e-1, \
+							time_bin = 1e-5, reset_delay = 1e-4)
+	end_time = time.time()
+	print(end_time - start_time)
+
+

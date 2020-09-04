@@ -3,7 +3,36 @@ import matplotlib.pyplot as plt
 import pickle
 import time
 
-from hybrid12 import run_simulation as run_hybrid
+from hybrid13 import run_simulation as run_hybrid
+from traditional5 import run_simulation as run_trad
+
+# Example of parameters to be set.
+# IDENTIFIER = '1km'
+# channel_length = 1 # in kilometers
+# num_repeats = [0,] # list of indices
+# duration = 2e8
+
+IDENTIFIER = input('IDENTIFIER (no quotes, "/") = ')
+channel_length = float(input('channel_length = ')) # distance between adjacent repeaters
+num_repeats = [int(input('trial index = ')),]
+type_input = input('hybrid or trad? ')
+if type_input == 'hybrid': is_hybrid = True
+elif type_input == 'trad': is_hybrid = False
+else: raise Exception("'hybrid' or 'trad' only")
+duration = float(input('duration = '))
+
+PREFIX = 'NetSquidData3/run_test7_1/'+IDENTIFIER+'/'
+
+num_repeaters = [3, 5, 7] # [1, 3, 5, 7, 9, 11]
+#num_qubits = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30] # even numbers
+num_qubits = [2, 4, 8, 16]
+#channel_length = 1 # in kilometers
+#num_repeats = range(1)
+#duration = 2e8
+
+# For single-repeater networks, we choose duration = 2e8 for 1km, 1e9 for 10km, 1e9 (1rev to 5rev) or 
+# 5e9 (6rev to 10rev) for 15km, 5e9 for 20km, 1e10 for 25km.
+# For chains, we choose duration = 5e9 for 10km.
 
 ### ARGUMENTS ###
 ## Repeater node parameters:
@@ -90,7 +119,7 @@ detector_eff = 0.93
 
 # Fidelity of two-qubit gates and measurement.
 # Note that single-qubit gates can be done with high fidelity and relatively low times.
-gate_fidelity = 0.98 # 0.98 is the value from Rozpedek et al, but for 2 registers,
+gate_fidelity = 0.992 # 0.98 is the value from Rozpedek et al, but for 2 registers,
 					  # hybrid fidelity is 0.87 and trad fidelity is 0.91.
 					  # gate_fidelity = 0.99 gives hybrid = 0.928, trad = 0.930.
 					  # gate_fidelity = 0.999 gives hybrid = 0.98, trad = 0.95.
@@ -112,8 +141,10 @@ BSM_time = 1e5 # nanoseconds, i.e. 100 microseconds
 
 # Time needed for initialization (i.e. generating spin-photon entanglement).
 prep_time = 6e3
-# Time between successive Barrett-Kok pulses.
+# Time between successive Barrett-Kok pulses (i.e. time needed to apply X gate).
 reset_delay = 100
+# Swap time (i.e. time needed to apply a SWAP gate).
+swap_time = 100
 
 # We might argue that the traditional repeater does not need local_time, but BSM_time dominates
 # local_time by such a large factor that the network clock cycle (link_time) will not change much.
@@ -131,70 +162,47 @@ def get_params(num_repeaters, m, channel_length, duration):
 	repeater_channel_loss = 1 - repeater_channel_efficiency
 	link_delay = link_delay_per_km * channel_length
 	local_delay = local_delay_per_MZI * depth_MZIs
-	local_time = max(2*local_delay, detector_dead_time)
-	link_time = max(2*link_delay, detector_dead_time) + 100*reset_delay + 10 * local_time + \
-					BSM_time + prep_time
+	local_time = max(2*prep_time+2*local_delay+reset_delay, detector_dead_time)
+	link_time = max(2*prep_time+2*link_delay+reset_delay, detector_dead_time) + swap_time + \
+					10*local_time + BSM_time
 	time_bin = 1e-2
-	detector_pdark = 1e-8 * detector_dead_time
-	return (num_repeaters, int(m/2), source_times, rep_times, channel_loss, duration, \
+	detector_pdark = detector_pdark_rate_per_ns * detector_dead_time
+	return (source_times, rep_times, channel_loss, duration, \
 				repeater_channel_loss, noise_on_nuclear_params, link_delay, \
 				link_time, local_delay, local_time, time_bin, \
 				detector_pdark, detector_eff, gate_fidelity, meas_fidelity, prep_fidelity, reset_delay)
 
-if False:
-	# PREFIX = 'NetSquidData3/run_test6_1/'
-	
-	num_repeaters = [1,] # 3, 5, 7, 9, 11]
-	#num_qubits = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30] # even numbers
-	num_qubits = [2,]
-	channel_length = 1 # in kilometers
-	num_repeats = 1
-	duration = 2e8
-	
-	data_hybrid = []
-	for nr in num_repeaters:
-		m = num_qubits[0]
-		data_hybrid.append([])
-		for k in range(num_repeats):
-			print('hybrid', nr, k)
-			start_time = time.time()
-			chain = run_hybrid(*get_params(nr, m, channel_length, duration))
-			end_time = time.time()
-			print((end_time - start_time)/60.0, 'minutes')
-			result = chain.planner_control_prot.data
-			with open(PREFIX+'run_test6_data_hybrid_'+str(nr)+'_trial_'+str(k)+'.pickle', 'wb') as fn: 
-				pickle.dump(result, fn)
-			data_hybrid[-1].append(result)
-	
-	# Save data!
-	with open(PREFIX+'run_test6_data_hybrid.pickle', 'wb') as fn: pickle.dump(data_hybrid, fn)
+def get_params_hybrid(num_repeaters, m, channel_length, duration):
+	return (num_repeaters, int(m/2)) + get_params(num_repeaters, m, channel_length, duration)
+def get_params_trad(num_repeaters, m, channel_length, duration):
+	return (num_repeaters, m) + get_params(num_repeaters, m, channel_length, duration)
 
-if True:
-	PREFIX = 'NetSquidData3/run_test6_2/'
-	
-	num_repeaters = [1, 3, 5, 7, 9, 11] # odd numbers
-	num_qubits = [2, 4, 6, 8, 10, 12]
-	channel_length = 1 # in kilometers
-	num_repeats = range(5, 6)
-	duration = 2e9
-
-	print(PREFIX, [x for x in num_repeats])
-
-	data_hybrid = []
+if is_hybrid:
 	for nr in num_repeaters:
 		for m in num_qubits:
-			data_hybrid.append([])
 			for k in num_repeats:
 				print('hybrid', nr, m, k)
 				start_time = time.time()
-				chain = run_hybrid(*get_params(nr, m, channel_length, duration))
+				chain = run_hybrid(*get_params_hybrid(nr, m, channel_length, duration))
 				end_time = time.time()
-				print((end_time - start_time)/60.0, 'minutes')
+				print((end_time-start_time)/60.0, 'minutes')
 				result = chain.planner_control_prot.data
-				with open(PREFIX+'run_test6_data_hybrid_'+str(nr)+'_'+str(m)+'_trial_'+str(k)+'.pickle', 'wb') as fn: 
+				filename = PREFIX+'run_test7_data_hybrid_nr_'+str(nr)+'_m_'+str(m)+\
+									'_trial_'+str(k)+'.pickle'
+				with open(filename, 'wb') as fn: 
 					pickle.dump(result, fn)
-				data_hybrid[-1].append(result)
-	
-	# Save data!
-	with open(PREFIX+'run_test6_data_hybrid.pickle', 'wb') as fn: pickle.dump(data_hybrid, fn)
+else:
+	for nr in num_repeaters:
+		for m in num_qubits:
+			for k in num_repeats:
+				print('trad', nr, m, k)
+				start_time = time.time()
+				chain = run_trad(*get_params_trad(nr, m, channel_length, duration))
+				end_time = time.time()
+				print((end_time-start_time)/60.0, 'minutes')
+				result = chain.planner_control_prot.data
+				filename = PREFIX+'run_test7_data_trad_nr_'+str(nr)+'_m_'+str(m)+\
+									'_trial_'+str(k)+'.pickle'
+				with open(filename, 'wb') as fn: 
+					pickle.dump(result, fn)
 
