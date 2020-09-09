@@ -172,7 +172,7 @@ class BellProtocol(AtomProtocol):
 				self.run_protocol_inner()
 			elif msg == 'BSM':
 				BSMoutcome = BSM(self.nodememory.get_qubit(0), self.nodememory.get_qubit(1),\
-									self.gate_fidelity**2, self.meas_fidelity)
+									self.gate_fidelity, self.meas_fidelity)
 				# self.num_electron_attempts here was reset when the second side started.
 				# In particular, we made the nuclear spin active right before starting the second side.
 				self.repeater_conn.put_from(self.myID, data = \
