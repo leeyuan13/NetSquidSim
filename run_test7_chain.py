@@ -115,7 +115,11 @@ detector_dead_time = 50 # nanoseconds (value from Ian?)
 
 # Detector dark count rate.
 detector_pdark_rate_per_ns = 1e-9 # 1 Hz
+# Time interval over which we search for expected photons.
+detector_search_interval = 5 * 6.7 # 6.7 ns = on-resonant emitter lifetime, from Li et al.
 # Detector efficiency.
+# This should account for detector search interval, but the interval is wide enough.
+# We assume that the entire photon (if present) is detected as efficiently as is allowed by the detector.
 detector_eff = 0.90
 
 # Fidelity of two-qubit gates and measurement.
@@ -126,8 +130,8 @@ gate_fidelity = 0.992 # 0.98 is the value from Rozpedek et al, but for 2 registe
 					  # gate_fidelity = 0.999 gives hybrid = 0.98, trad = 0.95.
 					  # These values assume prep_fidelity = 1.
 					  # 0.992 comes from Rong et al.
-meas_fidelity = 0.996 # From Humphreys et al.
-prep_fidelity = 0.998 # From Hensen et al.
+meas_fidelity = 0.996 # from Humphreys et al.
+prep_fidelity = 0.998 # from Hensen et al.
 
 # All times in nanoseconds.
 # Time needed for initialization (i.e. generating spin-photon entanglement).
@@ -170,7 +174,7 @@ def get_params(num_repeaters, m, channel_length, duration):
 	link_time = max(prep_time+2*link_delay+reset_delay, detector_dead_time) + swap_time + \
 					10*local_time + BSM_time
 	time_bin = 1e-2
-	detector_pdark = detector_pdark_rate_per_ns * detector_dead_time
+	detector_pdark = detector_pdark_rate_per_ns * detector_search_interval
 	return (source_times, rep_times, channel_loss, duration, \
 				repeater_channel_loss, noise_on_nuclear_params, link_delay, \
 				link_time, local_delay, local_time, time_bin, \
