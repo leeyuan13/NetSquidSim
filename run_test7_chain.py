@@ -110,12 +110,13 @@ link_delay_per_km = 1e9 * 1.4 * (1e3) / (3e8)
 local_delay_per_MZI = 1e9 * 2.08 * (3e-5) / (3e8)
 
 # Consecutive BK attempts can only be triggered after the detector dead time.
-detector_dead_time = 12 # nanoseconds (value from Ian?)
+detector_dead_time = 50 # nanoseconds (value from Ian?)
+# If we multiplex detectors, the detector dead time is irrelevant.
 
 # Detector dark count rate.
-detector_pdark_rate_per_ns = 1e-8
+detector_pdark_rate_per_ns = 1e-9 # 1 Hz
 # Detector efficiency.
-detector_eff = 0.93
+detector_eff = 0.90
 
 # Fidelity of two-qubit gates and measurement.
 # Note that single-qubit gates can be done with high fidelity and relatively low times.
@@ -126,25 +127,28 @@ gate_fidelity = 0.992 # 0.98 is the value from Rozpedek et al, but for 2 registe
 					  # These values assume prep_fidelity = 1.
 meas_fidelity = 0.9998 # This value is for SiVs. It should be about 0.992 for NVs 
 					   # (see "High fidelity spin measurement on the nitrogen vacancy center")
-prep_fidelity = 0.99
+prep_fidelity = 0.998 # From "Loophole-free Bell inequality violation" paper.
+
+# All times in nanoseconds.
+# Time needed for initialization (i.e. generating spin-photon entanglement).
+prep_time = 6e3 # first pump
+# Time between successive Barrett-Kok pulses (i.e. time needed to apply X gate).
+reset_delay = 50 # pi/2 pulse + re-pump (fast)
+# Time needed to apply a CNOT.
+CNOT_time = 700 # from gate_fidelity = 0.992 reference
+# Swap time (i.e. time needed to apply a SWAP gate).
+swap_time = CNOT_time*2 # since SWAP = 2 CNOT + local gates
+# Readout time from electron spin for Bell state measurements.
+readout_time = 12e3 # from Pfaff et al.
 
 # Time needed for Bell state measurement.
 # Note that this time is not actually simulated (unlike link delays, which actually elapse in real time.)
 # Bell state measurements do not go into the local Barrett-Kok clock cycle; they should go into the 
 # network clock cycle.
-BSM_time = 1e5 # nanoseconds, i.e. 100 microseconds
+BSM_time = CNOT_time + swap_time + 2*readout_time # about 16 microseconds
 # We need to finish the BSM before we can reinitialize qubits, but we can do > 1 BSMs in a single clock
 # cycle simultaneously.
 # Therefore, add BSM_time to link_time.
-# Note that we ignore the time needed for e.g. SWAP gates -- BSM_time should dominate these other
-# contributions.
-
-# Time needed for initialization (i.e. generating spin-photon entanglement).
-prep_time = 6e3
-# Time between successive Barrett-Kok pulses (i.e. time needed to apply X gate).
-reset_delay = 100
-# Swap time (i.e. time needed to apply a SWAP gate).
-swap_time = 100
 
 # We might argue that the traditional repeater does not need local_time, but BSM_time dominates
 # local_time by such a large factor that the network clock cycle (link_time) will not change much.
@@ -162,8 +166,8 @@ def get_params(num_repeaters, m, channel_length, duration):
 	repeater_channel_loss = 1 - repeater_channel_efficiency
 	link_delay = link_delay_per_km * channel_length
 	local_delay = local_delay_per_MZI * depth_MZIs
-	local_time = max(2*prep_time+2*local_delay+reset_delay, detector_dead_time)
-	link_time = max(2*prep_time+2*link_delay+reset_delay, detector_dead_time) + swap_time + \
+	local_time = max(prep_time+2*local_delay+reset_delay, detector_dead_time)
+	link_time = max(prep_time+2*link_delay+reset_delay, detector_dead_time) + swap_time + \
 					10*local_time + BSM_time
 	time_bin = 1e-2
 	detector_pdark = detector_pdark_rate_per_ns * detector_dead_time

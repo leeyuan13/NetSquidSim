@@ -40,18 +40,18 @@ def depolarization(num_qubits, fidelity):
 
 	return lambda q: nq.qubitapi.multi_operate(q, gen_pauli_ns, coeffs)
 	
-def BellStateMeasurement(atom1, atom2, total_gate_fidelity = 1., meas_fidelity = 1.):
-	# total_gate_fidelity = cumulative fidelity of two-qubit gates (CNOT, etc.). 
+def BellStateMeasurement(atom1, atom2, gate_fidelity = 1., meas_fidelity = 1.):
+	# gate_fidelity = fidelity of two-qubit gates, specifically CNOT
 	# meas_fidelity = fidelity of measuring the state of the electron spin.
 
-	# Note that cnot_fidelity should include the effects of e.g. swapping.
+	# Note that fidelity should include the effects of e.g. swapping (= 2 CNOTs).
 	# Let F be the fidelity of a 2-qubit operation.
 	# One of [atom1, atom2] is an electron spin; the other is a nuclear spin.
 	# Then, we need two 2-qubit gates, giving a cumulative fidelity of F**2.
 	# We also need to measure the electron spin twice.
 
 	# Generate depolarization functions.
-	gate_depol = depolarization(2, total_gate_fidelity)
+	gate_depol = depolarization(2, gate_fidelity)
 	meas_depol = depolarization(1, meas_fidelity)
 
 	# First do a CNOT on 1 and 2.
@@ -80,6 +80,9 @@ def BellStateMeasurement(atom1, atom2, total_gate_fidelity = 1., meas_fidelity =
 	#print(atom1.qstate)
 
 	result1 = nq.measure(atom1, ns.Z)
+	# Apply the depolarization for the SWAP gate, moving atom2 into the electron spin for readout.
+	gate_depol([atom1, atom2])
+	gate_depol([atom1, atom2])
 	result2 = nq.measure(atom2, ns.Z)
 
 	# Remap results for later convenience.
