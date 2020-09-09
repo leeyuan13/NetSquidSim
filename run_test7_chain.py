@@ -125,7 +125,8 @@ gate_fidelity = 0.992 # 0.98 is the value from Rozpedek et al, but for 2 registe
 					  # gate_fidelity = 0.99 gives hybrid = 0.928, trad = 0.930.
 					  # gate_fidelity = 0.999 gives hybrid = 0.98, trad = 0.95.
 					  # These values assume prep_fidelity = 1.
-meas_fidelity = 0.9998 # This value is for SiVs. It should be about 0.992 for NVs 
+					  # 0.992 comes from Rong et al.
+meas_fidelity = 0.996 # This value is for SiVs. It should be about 0.992 for NVs 
 					   # (see "High fidelity spin measurement on the nitrogen vacancy center")
 prep_fidelity = 0.998 # From "Loophole-free Bell inequality violation" paper.
 
@@ -135,7 +136,7 @@ prep_time = 6e3 # first pump
 # Time between successive Barrett-Kok pulses (i.e. time needed to apply X gate).
 reset_delay = 50 # pi/2 pulse + re-pump (fast)
 # Time needed to apply a CNOT.
-CNOT_time = 700 # from gate_fidelity = 0.992 reference
+CNOT_time = 696 # from Rong et al.
 # Swap time (i.e. time needed to apply a SWAP gate).
 swap_time = CNOT_time*2 # since SWAP = 2 CNOT + local gates
 # Readout time from electron spin for Bell state measurements.
