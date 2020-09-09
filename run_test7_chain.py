@@ -126,9 +126,8 @@ gate_fidelity = 0.992 # 0.98 is the value from Rozpedek et al, but for 2 registe
 					  # gate_fidelity = 0.999 gives hybrid = 0.98, trad = 0.95.
 					  # These values assume prep_fidelity = 1.
 					  # 0.992 comes from Rong et al.
-meas_fidelity = 0.996 # This value is for SiVs. It should be about 0.992 for NVs 
-					   # (see "High fidelity spin measurement on the nitrogen vacancy center")
-prep_fidelity = 0.998 # From "Loophole-free Bell inequality violation" paper.
+meas_fidelity = 0.996 # From Humphreys et al.
+prep_fidelity = 0.998 # From Hensen et al.
 
 # All times in nanoseconds.
 # Time needed for initialization (i.e. generating spin-photon entanglement).
@@ -140,7 +139,7 @@ CNOT_time = 696 # from Rong et al.
 # Swap time (i.e. time needed to apply a SWAP gate).
 swap_time = CNOT_time*2 # since SWAP = 2 CNOT + local gates
 # Readout time from electron spin for Bell state measurements.
-readout_time = 12e3 # from Pfaff et al.
+readout_time = 10e3 # from Humphreys et al.
 
 # Time needed for Bell state measurement.
 # Note that this time is not actually simulated (unlike link delays, which actually elapse in real time.)
@@ -167,7 +166,7 @@ def get_params(num_repeaters, m, channel_length, duration):
 	repeater_channel_loss = 1 - repeater_channel_efficiency
 	link_delay = link_delay_per_km * channel_length
 	local_delay = local_delay_per_MZI * depth_MZIs
-	local_time = max(prep_time+2*local_delay+reset_delay, detector_dead_time)
+	local_time = max(prep_time+1*local_delay+reset_delay, detector_dead_time)
 	link_time = max(prep_time+2*link_delay+reset_delay, detector_dead_time) + swap_time + \
 					10*local_time + BSM_time
 	time_bin = 1e-2
