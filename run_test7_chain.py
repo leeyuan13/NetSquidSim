@@ -25,14 +25,16 @@ PREFIX = 'NetSquidData3/run_test7_1/'+IDENTIFIER+'/'
 
 num_repeaters = [3, 5, 7] # [1, 3, 5, 7, 9, 11]
 #num_qubits = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30] # even numbers
-num_qubits = [2, 4, 8, 16]
+#num_qubits = [2, 4, 8, 16]
+num_qubits = [16, 8, 4, 2]
+#num_qubits = [6, 10, 12, 14, 18, 20, 22, 24, 26, 28, 30]
 #channel_length = 1 # in kilometers
 #num_repeats = range(1)
 #duration = 2e8
 
-# For single-repeater networks, we choose duration = 2e8 for 1km, 1e9 for 10km, 1e9 (1rev to 5rev) or 
-# 5e9 (6rev to 10rev) for 15km, 5e9 for 20km, 1e10 for 25km.
-# For chains, we choose duration = 5e9 for 10km.
+# For single-repeater networks, we choose duration = 2e8 for 1km, 1e9 for 10km,  
+# 3e9 for 15km, 5e9 for 20km, 1e10 for 25km.
+# For chains, we choose duration = 3e9 for 10km.
 
 ### ARGUMENTS ###
 ## Repeater node parameters:
@@ -186,8 +188,8 @@ def get_params_trad(num_repeaters, m, channel_length, duration):
 	return (num_repeaters, m) + get_params(num_repeaters, m, channel_length, duration)
 
 if is_hybrid:
-	for nr in num_repeaters:
-		for m in num_qubits:
+	for m in num_qubits:
+		for nr in num_repeaters:
 			for k in num_repeats:
 				print('hybrid', nr, m, k)
 				start_time = time.time()
@@ -200,8 +202,8 @@ if is_hybrid:
 				with open(filename, 'wb') as fn: 
 					pickle.dump(result, fn)
 else:
-	for nr in num_repeaters:
-		for m in num_qubits:
+	for m in num_qubits:
+		for nr in num_repeaters:
 			for k in num_repeats:
 				print('trad', nr, m, k)
 				start_time = time.time()
