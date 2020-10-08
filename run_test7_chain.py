@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import pickle
 import time
 
-from hybrid13m import run_simulation as run_hybrid
+from hybrid14 import run_simulation as run_hybrid
 from traditional5 import run_simulation as run_trad
 
 # Example of parameters to be set.

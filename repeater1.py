@@ -187,7 +187,7 @@ class BellProtocol(AtomProtocol):
 				# Model noise as depolarization channel.
 				self.gate_depol([self.nodememory.get_qubit(1)])
 				# Let repeater control know.
-				self.repeater_conn.put_from(self.myID, data = [('move_qubit_success',)])
+				self.repeater_conn.put_from(self.myID, data = [('move_qubit_success', self.side),])
 
 	def verification(self, side = None, args = None):
 		to_print = False # separate from to_print, since we only want to print this for debugging

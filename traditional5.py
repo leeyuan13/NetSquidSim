@@ -1340,7 +1340,7 @@ if __name__ == '__main__':
 	start_time = time.time()
 	#chain = run_simulation(3, 2, [[1e9, 1e9],], [[1e9, 1e9], [10e9, 10e9]], 1e-4, duration = 10)
 	#chain = run_simulation(1, 10, [[1e9, 1e9],], [[1e9, 1e9], [10e9, 10e9]], 1e-4, duration = 20)
-	chain = run_simulation(3, 2, [[1e9, 1e9],], [[1e9, 1e9], [10e9, 10e9]], 1e-4, duration = 1e3,\
+	chain = run_simulation(3, 2, [[1e9, 1e9],], [[1e9, 1e9], [10e9, 10e9]], 1e-4, duration = 1e2,\
 							link_delay = 1, link_time = 5, local_delay = 1e-2, local_time = 1e-1, \
 							time_bin = 1e-5, reset_delay = 1e-4)
 	end_time = time.time()
